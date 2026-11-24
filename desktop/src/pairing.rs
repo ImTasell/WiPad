@@ -207,6 +207,9 @@ mod tests {
         let (mut desktop_stream, mut phone_stream) = socket_pair();
         let (desktop_directory, desktop_store) = temp_trust_store("desktop-first");
         let (phone_directory, phone_store) = temp_trust_store("phone-first");
+        let phone_thread_store =
+            TrustStore::new(phone_directory.join("trusted-peer.sha256"));
+        let expected_for_phone = expected.clone();
 
         let phone_thread = std::thread::spawn(move || {
             perform_pairing(
@@ -215,9 +218,9 @@ mod tests {
                 "WiPad Phone",
                 &phone_certificate,
                 &desktop_certificate,
-                &phone_store,
+                &phone_thread_store,
                 |request| {
-                    assert_eq!(request.comparison_string, expected);
+                    assert_eq!(request.comparison_string, expected_for_phone);
                     assert_eq!(request.peer_display_name, "WiPad Desktop");
                     assert!(!request.reconnecting);
                     true
@@ -323,6 +326,8 @@ mod tests {
         let (mut desktop_stream, mut phone_stream) = socket_pair();
         let (desktop_directory, desktop_store) = temp_trust_store("desktop-reject");
         let (phone_directory, phone_store) = temp_trust_store("phone-reject");
+        let phone_thread_store =
+            TrustStore::new(phone_directory.join("trusted-peer.sha256"));
 
         let phone_thread = std::thread::spawn(move || {
             perform_pairing(
@@ -331,7 +336,7 @@ mod tests {
                 "WiPad Phone",
                 &phone_certificate,
                 &desktop_certificate,
-                &phone_store,
+                &phone_thread_store,
                 |_| true,
             )
         });
