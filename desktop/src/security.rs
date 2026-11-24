@@ -532,12 +532,13 @@ mod tests {
 
         assert_eq!(
             phone.remote_static,
-            desktop.transport.inner.get_remote_static().unwrap()
+            phone.transport.inner.get_remote_static().unwrap()
         );
         assert_eq!(
             desktop.remote_static,
-            phone.transport.inner.get_remote_static().unwrap()
+            desktop.transport.inner.get_remote_static().unwrap()
         );
+        assert_ne!(phone.remote_static, desktop.remote_static);
         assert_eq!(phone.authentication_string, desktop.authentication_string);
         assert_eq!(phone.authentication_string.len(), 14);
     }
