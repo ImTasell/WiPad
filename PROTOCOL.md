@@ -181,7 +181,7 @@ Every handshake or encrypted transport record is wrapped in the shared frame for
 
 The Rust and Kotlin implementations share the same conformance vector and malformed-frame tests. See [docs/TCP_FRAMING.md](docs/TCP_FRAMING.md).
 
-Framing does not provide authentication or confidentiality. Noise handshake records and encrypted Noise transport records occupy the frame payload. The inner message envelope and controller-state encoding remain subject to the protocol rules below.
+Framing does not provide authentication or confidentiality. During setup, TLS 1.3 records travel directly over the TCP stream and are not wrapped in WiPad frames. Once TLS is established, application messages are carried in the bounded WiPad frame format over the encrypted TLS stream. The inner message envelope and controller-state encoding remain subject to the protocol rules below.
 
 ## 8. Controller-state semantics
 
