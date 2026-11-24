@@ -9,17 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ControllerStateCodecTest {
-    // Same 34-byte vector asserted by desktop/src/controller.rs.
-    private val vector = byteArrayOf(
-        0x10,
-        0, 0, 0, 0, 0, 0, 0, 1,
-        0, 0, 0, 0, 0, 0, 0, 2,
-        0, 0, 0, 9,
-        0,
-        0x12, 0x34, 0xFF.toByte(), 0xFE.toByte(),
-        0, 0, 0x80.toByte(), 0,
-        0xFF.toByte(), 0xFF.toByte(), 0, 0,
-    )
+    private val vector = GoldenVectors.bytes("input_state_sample")
 
     private val state = ControllerState(
         sequence = 1,
@@ -35,24 +25,20 @@ class ControllerStateCodecTest {
     )
 
     @Test
-    fun encodesTheSharedControllerStateVector() {
+    fun encodesAndDecodesTheCanonicalControllerStateVector() {
         assertArrayEquals(vector, ControllerStateCodec.encode(state))
-    }
-
-    @Test
-    fun decodesTheSharedControllerStateVector() {
         assertEquals(state, ControllerStateCodec.decode(vector))
     }
 
     @Test
-    fun applicationMessageCodecCarriesInputState() {
+    fun applicationMessageCodecCarriesTheCanonicalInputState() {
         val message = ApplicationMessage.InputState(state)
         assertArrayEquals(vector, ApplicationMessageCodec.encode(message))
         assertEquals(message, ApplicationMessageCodec.decode(vector))
     }
 
     @Test
-    fun rejectsMalformedControllerState() {
+    fun rejectsMalformedControllerStateAndSharedInvalidVector() {
         assertThrows(IOException::class.java) {
             ControllerStateCodec.decode(vector.copyOf(33))
         }
@@ -63,12 +49,9 @@ class ControllerStateCodecTest {
             ControllerStateCodec.decode(invalidType)
         }
 
-        val invalidHat = vector.copyOf()
-        invalidHat[21] = 9
         assertThrows(IOException::class.java) {
-            ControllerStateCodec.decode(invalidHat)
+            ControllerStateCodec.decode(GoldenVectors.bytes("invalid_input_state_hat"))
         }
-
         assertThrows(IOException::class.java) {
             ControllerStateCodec.encode(state.copy(sequence = 0))
         }
