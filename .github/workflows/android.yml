@@ -30,7 +30,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Install Android 17 preview SDK
+      - name: Install stable Android SDK components
         shell: bash
         run: |
           set -euo pipefail
@@ -39,11 +39,10 @@ jobs:
             echo "Android SDK command-line tools were not found in $ANDROID_HOME" >&2
             exit 1
           fi
-          "$SDKMANAGER" --channel=3 --list | grep -E 'platforms;android-37|build-tools;37\.' || true
-          yes | "$SDKMANAGER" --channel=3 --licenses >/dev/null 2>&1 || true
-          "$SDKMANAGER" --channel=3 --install \
-            "platforms;android-37" \
-            "build-tools;37.0.0" \
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --install \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
             "platform-tools"
       - uses: gradle/actions/setup-gradle@v4
         with:
