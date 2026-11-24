@@ -134,10 +134,6 @@ fn axis(code: AbsoluteAxisCode, minimum: i32, maximum: i32) -> UinputAbsSetup {
     UinputAbsSetup::new(code, AbsInfo::new(0, minimum, maximum, 0, 0, 0))
 }
 
-fn absolute_event(code: AbsoluteAxisCode, value: i32) -> InputEvent {
-    InputEvent::new(EventType::ABSOLUTE.0, code.0, value)
-}
-
 fn hat_axes(hat: u8) -> (i32, i32) {
     match hat {
         1 => (0, -1),
