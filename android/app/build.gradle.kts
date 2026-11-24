@@ -24,12 +24,6 @@ android {
         compose = true
     }
 
-    sourceSets {
-        getByName("test") {
-            resources.srcDir(rootProject.file("protocol"))
-        }
-    }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
