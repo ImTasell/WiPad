@@ -37,6 +37,10 @@ private val WiPadColors = darkColorScheme(
 
 class MainActivity : ComponentActivity() {
     private var desktopStatus by mutableStateOf("Starting LAN discovery…")
+    private var pendingPairing by mutableStateOf<PairingPrompt?>(null)
+    private val pairingApprovals = PairingApprovalCoordinator(
+        onPendingChanged = { prompt -> runOnUiThread { pendingPairing = prompt } },
+    )
     private var discovery: LanDiscovery? = null
     private val sessionConnecting = AtomicBoolean(false)
     private val controllerInput = AndroidControllerInput()
@@ -73,6 +77,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         activityStarted = false
+        pairingApprovals.cancelPending()
         discovery?.close()
         discovery = null
         val activeSession = phoneSession
@@ -91,6 +96,21 @@ class MainActivity : ComponentActivity() {
         inputThread = null
         heartbeatThread = null
         super.onStop()
+    }
+
+    /** Approval surface hook: UI code can accept or reject the pending first-contact peer. */
+    fun approvePendingPairing(): Boolean = pairingApprovals.decide(true)
+
+    fun rejectPendingPairing(): Boolean = pairingApprovals.decide(false)
+
+    fun forgetTrustedDesktop() {
+        pairingApprovals.cancelPending()
+        phoneSession?.let {
+            phoneSession = null
+            runCatching { it.close() }
+        }
+        runCatching { TlsPeerPinStore(this).forgetDesktop() }
+        runOnUiThread { desktopStatus = "Trusted desktop forgotten · scanning" }
     }
 
     private fun joinWorker(worker: Thread?) {
@@ -119,11 +139,7 @@ class MainActivity : ComponentActivity() {
                             displayName = "WiPad Phone",
                             onSocketCreated = { connectingSocket = it },
                         ) { request ->
-                            runOnUiThread {
-                                desktopStatus = "Pairing needs approval · ${request.peerDisplayName} · ${request.comparisonString}"
-                            }
-                            // First contact remains denied until the approval surface exists.
-                            false
+                            pairingApprovals.requestApproval(request)
                         }
 
                         connectingSocket = null
