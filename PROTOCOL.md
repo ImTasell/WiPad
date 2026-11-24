@@ -156,17 +156,21 @@ The protocol defines logical messages independently of the eventual transport. T
 
 Implementations must reject unknown required message types, invalid lengths, invalid enum values, and messages that are not valid in the current session state.
 
-### 7.2 Message envelope
+### 7.2 Message envelope and TCP framing
 
-The final byte-level envelope is pending transport and serialization selection. It must include:
+The initial session transport is one TCP connection per active session. TCP is a byte stream: read and write boundaries do not correspond to application messages.
 
-- Protocol major and minor version.
-- Message type.
-- Payload length or an equivalent bounded framing mechanism.
-- Session context sufficient to reject messages from an old session.
-- A defined byte order and integer representation.
+Every handshake or encrypted transport record is wrapped in the shared frame format:
 
-Maximum message sizes must be small and explicitly bounded. Discovery metadata and input messages must never permit unbounded allocation based on peer-provided lengths.
+- Four-byte unsigned payload length, big-endian.
+- Payload follows immediately; the length excludes the four-byte prefix.
+- Valid payload size is 1–4096 bytes.
+- Zero-length, oversized, and truncated frames are rejected before message parsing.
+- A frame decoder must not allocate from an unchecked peer-provided length.
+
+The Rust and Kotlin implementations share the same conformance vector and malformed-frame tests. See [docs/TCP_FRAMING.md](docs/TCP_FRAMING.md).
+
+Framing does not provide authentication or confidentiality. Noise handshake records and encrypted Noise transport records occupy the frame payload. The inner message envelope and controller-state encoding remain subject to the protocol rules below.
 
 ## 8. Controller-state semantics
 
