@@ -93,10 +93,10 @@ From the repository root, once the desktop package exists:
 ```bash
 cd desktop
 cargo fmt --check
-cargo check --locked
-cargo test --locked
-cargo clippy --all-targets --all-features --locked -- -D warnings
-cargo build --release --locked
+cargo check
+cargo test
+cargo clippy --all-targets -- -D warnings
+cargo build --release
 ```
 
 Use `cargo fmt` to apply formatting. Do not suppress Clippy warnings globally; resolve them or document a narrowly scoped exception.
