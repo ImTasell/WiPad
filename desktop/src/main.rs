@@ -1,4 +1,5 @@
 pub mod protocol;
+pub mod security;
 
 mod discovery;
 
