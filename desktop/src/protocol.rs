@@ -193,7 +193,7 @@ mod tests {
             major: PROTOCOL_MAJOR,
             minor: PROTOCOL_MINOR,
             role: PeerRole::Desktop,
-            display_name: "WiPad\\nDesktop".to_owned(),
+            display_name: "WiPad\nDesktop".to_owned(),
         };
         assert!(encode_application_message(&control_name).is_err());
     }
