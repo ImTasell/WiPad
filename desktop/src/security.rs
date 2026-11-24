@@ -112,7 +112,9 @@ impl NoiseIdentity {
         }
 
         let mut file = File::open(path)?;
-        let mut bytes = Vec::with_capacity(IDENTITY_MAGIC.len() + PRIVATE_KEY_LENGTH);
+        let mut bytes = Zeroizing::new(Vec::with_capacity(
+            IDENTITY_MAGIC.len() + PRIVATE_KEY_LENGTH,
+        ));
         file.read_to_end(&mut bytes)?;
 
         if bytes.len() != IDENTITY_MAGIC.len() + PRIVATE_KEY_LENGTH
@@ -380,7 +382,7 @@ impl NoiseTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    
 
     fn perform_xx_handshake() -> (EstablishedSession, EstablishedSession) {
         let phone_identity = NoiseIdentity::generate().unwrap();
@@ -461,11 +463,7 @@ mod tests {
 
     #[test]
     fn identity_is_persisted_with_restricted_permissions_and_reloaded() {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let directory = std::env::temp_dir().join(format!("wipad-identity-{nonce}"));
+        let directory = std::env::temp_dir().join(format!("wipad-identity-{}", Uuid::new_v4()));
         let path = directory.join("identity.noise");
 
         let first = NoiseIdentity::load_or_create(&path).unwrap();
@@ -486,11 +484,8 @@ mod tests {
 
     #[test]
     fn malformed_identity_is_not_silently_replaced() {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let directory = std::env::temp_dir().join(format!("wipad-invalid-identity-{nonce}"));
+        let directory =
+            std::env::temp_dir().join(format!("wipad-invalid-identity-{}", Uuid::new_v4()));
         fs::create_dir_all(&directory).unwrap();
         let path = directory.join("identity.noise");
         fs::write(&path, b"not-a-wipad-identity").unwrap();
