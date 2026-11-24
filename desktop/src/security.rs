@@ -3,9 +3,8 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
 use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use rustls::{
-    crypto::CryptoProvider,
-    ClientConfig, ClientConnection, DigitallySignedStruct, DistinguishedName,
-    Error as TlsError, ProtocolVersion, ServerConfig, ServerConnection, SignatureScheme,
+    ClientConfig, ClientConnection, DigitallySignedStruct, DistinguishedName, Error as TlsError,
+    ProtocolVersion, ServerConfig, ServerConnection, SignatureScheme, crypto::CryptoProvider,
 };
 use rustls::{crypto, version};
 use sha2::{Digest, Sha256};
