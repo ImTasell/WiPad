@@ -249,12 +249,16 @@ where
     // Only create the virtual device after both peers have completed pairing.
     tls.sock
         .set_read_timeout(Some(Duration::from_millis(250)))?;
-    receive_controller_stream(&mut tls, stop)?;
+    receive_controller_stream(&mut tls, stop, &on_status)?;
     on_status("Phone disconnected · scanning for phone".to_owned());
     Ok(())
 }
 
-fn receive_controller_stream<S: Read>(stream: &mut S, stop: &AtomicBool) -> io::Result<()> {
+fn receive_controller_stream<S: Read>(
+    stream: &mut S,
+    stop: &AtomicBool,
+    on_status: &impl Fn(String),
+) -> io::Result<()> {
     let mut decoder = FrameReader::new();
     let mut sequence = InputSequenceTracker::default();
     let mut gamepad = VirtualGamepad::create()?;
@@ -262,6 +266,7 @@ fn receive_controller_stream<S: Read>(stream: &mut S, stop: &AtomicBool) -> io::
 
     let mut last_input = Instant::now();
     let mut controls_released = true;
+    let mut controller_connected: Option<bool> = None;
 
     loop {
         if stop.load(Ordering::Relaxed) {
@@ -273,10 +278,25 @@ fn receive_controller_stream<S: Read>(stream: &mut S, stop: &AtomicBool) -> io::
             Ok(Some(frame)) => match decode_application_message(&frame)? {
                 ApplicationMessage::InputState(state) => {
                     if sequence.accept(&state)? {
-                        gamepad.apply_state(&state)?;
                         last_input = Instant::now();
-                        controls_released = false;
+                        if controller_connected != Some(false) {
+                            gamepad.apply_state(&state)?;
+                            controls_released = false;
+                        }
                     }
+                }
+                ApplicationMessage::ControllerStatus { connected } => {
+                    if controller_connected != Some(connected) {
+                        controller_connected = Some(connected);
+                        if !connected {
+                            gamepad.release_all()?;
+                            controls_released = true;
+                            on_status("Phone connected · waiting for Bluetooth controller".to_owned());
+                        } else {
+                            on_status("Bluetooth controller connected · receiving input".to_owned());
+                        }
+                    }
+                    last_input = Instant::now();
                 }
                 _ => {
                     return Err(io::Error::new(
