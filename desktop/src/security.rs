@@ -112,9 +112,8 @@ impl NoiseIdentity {
         }
 
         let mut file = File::open(path)?;
-        let mut bytes = Zeroizing::new(Vec::with_capacity(
-            IDENTITY_MAGIC.len() + STATIC_KEY_LENGTH,
-        ));
+        let mut bytes =
+            Zeroizing::new(Vec::with_capacity(IDENTITY_MAGIC.len() + STATIC_KEY_LENGTH));
         file.read_to_end(&mut bytes)?;
 
         if bytes.len() != IDENTITY_MAGIC.len() + STATIC_KEY_LENGTH
