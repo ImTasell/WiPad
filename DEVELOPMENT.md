@@ -36,19 +36,19 @@ WiPad/
 └── LICENSE
 ```
 
-The Android build currently uses Gradle 9.6.0, Android Gradle Plugin 9.5.0, AGP built-in Kotlin, Compose compiler plugin 2.4.10, JDK 17, and Compose BOM 2026.09.00. The desktop uses Rust 1.95+ and Slint 1.19.0. These are initial pinned versions and should be upgraded deliberately. A Gradle wrapper has not been checked in yet; CI installs the pinned Gradle version directly. The desktop `Cargo.lock` should be generated and committed once the first dependency resolution succeeds.
+The Android build currently uses Gradle 9.6.0, Android Gradle Plugin 9.5.0 with AGP built-in Kotlin, Compose compiler plugin 2.4.10, JDK 17, compile SDK 37, target SDK 36, and Compose BOM 2026.09.00. The desktop uses Rust 1.95+ and Slint 1.19.0. These are initial pinned versions and should be upgraded deliberately. A Gradle wrapper has not been checked in yet; CI installs the pinned Gradle version directly. The desktop `Cargo.lock` should be generated and committed once the first dependency resolution succeeds.
 
 ## 3. Android development
 
 ### Requirements
 
 - JDK 17.
-- Android SDK Platform for the configured compile SDK.
-- Android SDK Build-Tools and platform tools.
+- Android SDK Platform 37 for compilation.
+- Android SDK Build-Tools 37.0.0 and platform tools.
 - Android Gradle Plugin 9.5.0 with built-in Kotlin, and Gradle 9.6.0.
 - An Android 11+ device or emulator for testing.
 
-The minimum supported Android version is API 30; the current target and compile SDK are both API 36. The app explicitly filters to `armeabi-v7a` for the initial 32-bit ARM target.
+The minimum supported Android version is API 30. The app compiles against API 37 but targets API 36, keeping access to newer compile-time APIs separate from opting into newer runtime behavior. The app explicitly filters to `armeabi-v7a` for the initial 32-bit ARM target.
 
 ### Build and test
 
@@ -135,7 +135,8 @@ GitHub Actions should validate both platform projects independently, then run sh
 ### Android CI
 
 - Set up the pinned JDK.
-- Set up the configured Android SDK platform and build tools.
+- Use the Android SDK preinstalled on the GitHub-hosted runner; install only the required platform, build-tools, and platform-tools packages with `sdkmanager`.
+- Compile against API 37 while keeping target SDK 36 until runtime behavior changes are deliberately tested.
 - Enable Gradle dependency/build caching.
 - Run unit tests, lint, and debug assembly.
 - Build the required `armeabi-v7a` artifact.
