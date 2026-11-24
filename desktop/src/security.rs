@@ -1,4 +1,4 @@
-use snow::{Builder, HandshakeState, NoiseParams, TransportState};
+use snow::{params::NoiseParams, Builder, HandshakeState, TransportState};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
