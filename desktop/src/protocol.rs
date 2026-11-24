@@ -111,4 +111,284 @@ mod tests {
             io::ErrorKind::UnexpectedEof
         );
     }
+
+
+    #[test]
+    fn encodes_the_shared_phone_pairing_hello_vector() {
+        let message = ApplicationMessage::PairingHello {
+            major: 1,
+            minor: 0,
+            role: PeerRole::Phone,
+            display_name: "Phone".to_owned(),
+        };
+
+        assert_eq!(
+            encode_application_message(&message).unwrap(),
+            [0x01, 0x01, 0x00, 0x01, 0x05, b'P', b'h', b'o', b'n', b'e']
+        );
+    }
+
+    #[test]
+    fn decodes_the_shared_phone_pairing_hello_vector() {
+        let encoded = [0x01, 0x01, 0x00, 0x01, 0x05, b'P', b'h', b'o', b'n', b'e'];
+
+        assert_eq!(
+            decode_application_message(&encoded).unwrap(),
+            ApplicationMessage::PairingHello {
+                major: 1,
+                minor: 0,
+                role: PeerRole::Phone,
+                display_name: "Phone".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn encodes_and_decodes_pairing_decisions_and_session_ready() {
+        for approved in [false, true] {
+            let message = ApplicationMessage::PairingDecision { approved };
+            let expected = [MESSAGE_PAIRING_DECISION, u8::from(approved)];
+            assert_eq!(encode_application_message(&message).unwrap(), expected);
+            assert_eq!(decode_application_message(&expected).unwrap(), message);
+        }
+
+        assert_eq!(
+            encode_application_message(&ApplicationMessage::SessionReady).unwrap(),
+            [MESSAGE_SESSION_READY]
+        );
+        assert_eq!(
+            decode_application_message(&[MESSAGE_SESSION_READY]).unwrap(),
+            ApplicationMessage::SessionReady
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_pairing_messages() {
+        for payload in [
+            &[MESSAGE_PAIRING_HELLO][..],
+            &[MESSAGE_PAIRING_HELLO, 2, 0, 1, 1, b'P'],
+            &[MESSAGE_PAIRING_HELLO, 1, 0, 9, 1, b'P'],
+            &[MESSAGE_PAIRING_HELLO, 1, 0, 1, 0][..],
+            &[MESSAGE_PAIRING_DECISION, 2],
+            &[MESSAGE_PAIRING_DECISION, 1, 0],
+            &[MESSAGE_SESSION_READY, 0],
+            &[0xFF],
+        ] {
+            assert!(decode_application_message(payload).is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_display_names() {
+        let too_long = "x".repeat(MAX_DISPLAY_NAME_LENGTH + 1);
+        let too_long_message = ApplicationMessage::PairingHello {
+            major: PROTOCOL_MAJOR,
+            minor: PROTOCOL_MINOR,
+            role: PeerRole::Desktop,
+            display_name: too_long,
+        };
+        assert!(encode_application_message(&too_long_message).is_err());
+
+        let control_name = ApplicationMessage::PairingHello {
+            major: PROTOCOL_MAJOR,
+            minor: PROTOCOL_MINOR,
+            role: PeerRole::Desktop,
+            display_name: "WiPad\\nDesktop".to_owned(),
+        };
+        assert!(encode_application_message(&control_name).is_err());
+    }
+
+}
+
+
+pub const PROTOCOL_MAJOR: u8 = 1;
+pub const PROTOCOL_MINOR: u8 = 0;
+pub const MAX_DISPLAY_NAME_LENGTH: usize = 64;
+
+const MESSAGE_PAIRING_HELLO: u8 = 0x01;
+const MESSAGE_PAIRING_DECISION: u8 = 0x02;
+const MESSAGE_SESSION_READY: u8 = 0x03;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PeerRole {
+    Phone,
+    Desktop,
+}
+
+impl PeerRole {
+    fn to_wire(self) -> u8 {
+        match self {
+            Self::Phone => 1,
+            Self::Desktop => 2,
+        }
+    }
+
+    fn from_wire(value: u8) -> io::Result<Self> {
+        match value {
+            1 => Ok(Self::Phone),
+            2 => Ok(Self::Desktop),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "WiPad peer role is invalid",
+            )),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ApplicationMessage {
+    PairingHello {
+        major: u8,
+        minor: u8,
+        role: PeerRole,
+        display_name: String,
+    },
+    PairingDecision {
+        approved: bool,
+    },
+    SessionReady,
+}
+
+pub fn encode_application_message(message: &ApplicationMessage) -> io::Result<Vec<u8>> {
+    let mut payload = Vec::new();
+
+    match message {
+        ApplicationMessage::PairingHello {
+            major,
+            minor,
+            role,
+            display_name,
+        } => {
+            let name = display_name.as_bytes();
+            if *major != PROTOCOL_MAJOR
+                || name.is_empty()
+                || name.len() > MAX_DISPLAY_NAME_LENGTH
+                || display_name.chars().any(char::is_control)
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "WiPad pairing hello contains invalid version or display name",
+                ));
+            }
+
+            payload.reserve(5 + name.len());
+            payload.push(MESSAGE_PAIRING_HELLO);
+            payload.push(*major);
+            payload.push(*minor);
+            payload.push(role.to_wire());
+            payload.push(name.len() as u8);
+            payload.extend_from_slice(name);
+        }
+        ApplicationMessage::PairingDecision { approved } => {
+            payload.push(MESSAGE_PAIRING_DECISION);
+            payload.push(u8::from(*approved));
+        }
+        ApplicationMessage::SessionReady => {
+            payload.push(MESSAGE_SESSION_READY);
+        }
+    }
+
+    if payload.len() > MAX_FRAME_LENGTH {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "WiPad application message is too large",
+        ));
+    }
+
+    Ok(payload)
+}
+
+pub fn decode_application_message(payload: &[u8]) -> io::Result<ApplicationMessage> {
+    if payload.is_empty() || payload.len() > MAX_FRAME_LENGTH {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "WiPad application message length is invalid",
+        ));
+    }
+
+    match payload[0] {
+        MESSAGE_PAIRING_HELLO => {
+            if payload.len() < 6 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "WiPad pairing hello is truncated",
+                ));
+            }
+
+            let major = payload[1];
+            let minor = payload[2];
+            if major != PROTOCOL_MAJOR {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "WiPad protocol major version is unsupported",
+                ));
+            }
+
+            let role = PeerRole::from_wire(payload[3])?;
+            let name_length = payload[4] as usize;
+            if name_length == 0
+                || name_length > MAX_DISPLAY_NAME_LENGTH
+                || payload.len() != 5 + name_length
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "WiPad pairing hello display-name length is invalid",
+                ));
+            }
+
+            let display_name = std::str::from_utf8(&payload[5..])
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "display name is not UTF-8"))?
+                .to_owned();
+            if display_name.chars().any(char::is_control) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "WiPad display name contains control characters",
+                ));
+            }
+
+            Ok(ApplicationMessage::PairingHello {
+                major,
+                minor,
+                role,
+                display_name,
+            })
+        }
+        MESSAGE_PAIRING_DECISION => {
+            if payload.len() != 2 || payload[1] > 1 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "WiPad pairing decision is malformed",
+                ));
+            }
+
+            Ok(ApplicationMessage::PairingDecision {
+                approved: payload[1] == 1,
+            })
+        }
+        MESSAGE_SESSION_READY => {
+            if payload.len() != 1 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "WiPad SESSION_READY must not have a payload",
+                ));
+            }
+
+            Ok(ApplicationMessage::SessionReady)
+        }
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "WiPad application message type is unknown",
+        )),
+    }
+}
+
+pub fn read_application_message<R: Read>(reader: &mut R) -> io::Result<ApplicationMessage> {
+    decode_application_message(&read_frame(reader)?)
+}
+
+pub fn write_application_message<W: Write>(
+    writer: &mut W,
+    message: &ApplicationMessage,
+) -> io::Result<()> {
+    write_frame(writer, &encode_application_message(message)?)
 }
