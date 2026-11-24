@@ -84,10 +84,9 @@ impl Discovery {
                     if let Ok(ServiceEvent::ServiceResolved(service)) =
                         receiver.recv_timeout(Duration::from_millis(500))
                     {
-                        let compatible =
-                            service.get_property_val_str("pv").is_some_and(|version| {
-                                version.split(',').any(|v| v == PROTOCOL_MAJOR)
-                            });
+                        let compatible = service
+                            .get_property_val_str("pv")
+                            .is_some_and(|version| version.split(',').any(|v| v == PROTOCOL_MAJOR));
                         let is_phone = service.get_property_val_str("role") == Some("phone");
                         if compatible && is_phone {
                             let name = service
