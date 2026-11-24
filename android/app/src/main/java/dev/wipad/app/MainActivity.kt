@@ -201,7 +201,15 @@ class MainActivity : ComponentActivity() {
                             port = endpoint.port,
                             displayName = "WiPad Phone",
                             onSocketCreated = { socket ->
-                                synchronized(trustRevisionLock) { connectingSocket = socket }
+                                val keepSocket = synchronized(trustRevisionLock) {
+                                    if (activityStarted && attemptTrustRevision == trustRevision) {
+                                        connectingSocket = socket
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                                if (!keepSocket) runCatching { socket.close() }
                             },
                         ) { request ->
                             pairingApprovals.requestApproval(request)
