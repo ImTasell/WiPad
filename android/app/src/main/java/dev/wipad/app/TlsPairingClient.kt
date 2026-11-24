@@ -21,6 +21,18 @@ internal class PhoneSession(
     val peerFingerprint: ByteArray,
     val reconnecting: Boolean,
 ) : Closeable {
+    @Synchronized
+    fun sendControllerState(state: ControllerState) {
+        if (socket.isClosed || socket.isOutputShutdown) {
+            throw IOException("WiPad session is closed")
+        }
+        FrameCodec.writeFrame(
+            socket.outputStream,
+            ApplicationMessageCodec.encode(ApplicationMessage.InputState(state)),
+        )
+    }
+
+    @Synchronized
     override fun close() = socket.close()
 }
 
