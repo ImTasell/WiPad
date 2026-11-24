@@ -291,9 +291,13 @@ fn receive_controller_stream<S: Read>(
                         if !connected {
                             gamepad.release_all()?;
                             controls_released = true;
-                            on_status("Phone connected · waiting for Bluetooth controller".to_owned());
+                            on_status(
+                                "Phone connected · waiting for Bluetooth controller".to_owned(),
+                            );
                         } else {
-                            on_status("Bluetooth controller connected · receiving input".to_owned());
+                            on_status(
+                                "Bluetooth controller connected · receiving input".to_owned(),
+                            );
                         }
                     }
                     last_input = Instant::now();
