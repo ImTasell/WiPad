@@ -125,7 +125,10 @@ class MainActivity : ComponentActivity() {
             phoneSession = null
             runCatching { it.close() }
         }
-        runOnUiThread { desktopStatus = "Trusted desktop forgotten · scanning" }
+        runOnUiThread { desktopStatus = "Trusted desktop forgotten · requesting approval" }
+        discoveredDesktop?.let { endpoint ->
+            connectToDesktop(endpoint.address, endpoint.port, endpoint.serviceName)
+        }
         return true
     }
 
