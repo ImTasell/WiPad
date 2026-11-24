@@ -217,7 +217,9 @@ class TlsPeerPinStore(context: Context) {
     }
 
     fun forgetDesktop() {
-        preferences.edit().remove(DESKTOP_FINGERPRINT).apply()
+        check(preferences.edit().remove(DESKTOP_FINGERPRINT).commit()) {
+            "Could not revoke the WiPad desktop trust pin"
+        }
     }
 }
 
