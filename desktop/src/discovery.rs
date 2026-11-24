@@ -1,5 +1,6 @@
 use mdns_sd::{RecvTimeoutError, ServiceDaemon, ServiceEvent, ServiceInfo};
 use rustls::{ServerConnection, StreamOwned};
+use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
@@ -121,14 +122,21 @@ impl Discovery {
         thread::Builder::new()
             .name("wipad-mdns-browser".into())
             .spawn(move || {
+                let mut discovered_phones = HashSet::new();
                 callback("Broadcasting · scanning for phone".to_owned());
                 while !browse_stop.load(Ordering::Relaxed) {
                     match receiver.recv_timeout(Duration::from_millis(500)) {
                         Ok(ServiceEvent::ServiceResolved(service)) => {
-                            if is_compatible_phone(
+                            if !is_compatible_phone(
                                 service.get_property_val_str("pv"),
                                 service.get_property_val_str("role"),
                             ) {
+                                continue;
+                            }
+                            if !discovered_phones.insert(service.get_fullname().to_owned()) {
+                                continue;
+                            }
+                            {
                                 let name = service
                                     .get_property_val_str("name")
                                     .unwrap_or("WiPad Phone");
@@ -141,9 +149,10 @@ impl Discovery {
                                 callback(format!("Phone found · {name} · {address}"));
                             }
                         }
-                        Ok(ServiceEvent::ServiceRemoved(service_type, _))
+                        Ok(ServiceEvent::ServiceRemoved(service_type, full_name))
                             if service_type == PHONE_SERVICE =>
                         {
+                            discovered_phones.remove(&full_name);
                             callback("Broadcasting · scanning for phone".to_owned());
                         }
                         Ok(ServiceEvent::SearchStopped(_)) => {
