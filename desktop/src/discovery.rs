@@ -1,12 +1,14 @@
 use mdns_sd::{RecvTimeoutError, ServiceDaemon, ServiceEvent, ServiceInfo};
+use rustls::{ServerConnection, StreamOwned};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
-use rustls::{ServerConnection, StreamOwned};
 
 use crate::pairing::{PairingRequest, perform_pairing};
 use crate::protocol::PeerRole;
-use crate::security::{TlsIdentity, TrustDecision, TrustStore, certificate_fingerprint, server_config};
+use crate::security::{
+    TlsIdentity, TrustDecision, TrustStore, certificate_fingerprint, server_config,
+};
 use std::path::PathBuf;
 use std::sync::{
     Arc,
@@ -187,8 +189,8 @@ where
         server_config(identity, expected_phone_fingerprint)
             .map_err(|error| io::Error::other(error.to_string()))?,
     );
-    let connection = ServerConnection::new(config)
-        .map_err(|error| io::Error::other(error.to_string()))?;
+    let connection =
+        ServerConnection::new(config).map_err(|error| io::Error::other(error.to_string()))?;
     let mut tls = StreamOwned::new(connection, socket);
 
     while tls.conn.is_handshaking() {
@@ -199,14 +201,20 @@ where
         .conn
         .peer_certificates()
         .and_then(|certificates| certificates.first())
-        .ok_or_else(|| io::Error::new(io::ErrorKind::PermissionDenied, "phone identity is missing"))?
+        .ok_or_else(|| {
+            io::Error::new(io::ErrorKind::PermissionDenied, "phone identity is missing")
+        })?
         .as_ref()
         .to_vec();
     let peer_fingerprint = certificate_fingerprint(&peer_certificate);
 
     match trust_store.decision(&peer_fingerprint)? {
-        TrustDecision::Trusted => on_status("Trusted phone authenticated · checking approval".to_owned()),
-        TrustDecision::NeedsApproval => on_status("New phone authenticated · pairing approval required".to_owned()),
+        TrustDecision::Trusted => {
+            on_status("Trusted phone authenticated · checking approval".to_owned())
+        }
+        TrustDecision::NeedsApproval => {
+            on_status("New phone authenticated · pairing approval required".to_owned())
+        }
         TrustDecision::IdentityChanged => {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
