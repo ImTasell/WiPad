@@ -207,8 +207,7 @@ mod tests {
         let (mut desktop_stream, mut phone_stream) = socket_pair();
         let (desktop_directory, desktop_store) = temp_trust_store("desktop-first");
         let (phone_directory, phone_store) = temp_trust_store("phone-first");
-        let phone_thread_store =
-            TrustStore::new(phone_directory.join("trusted-peer.sha256"));
+        let phone_thread_store = TrustStore::new(phone_directory.join("trusted-peer.sha256"));
         let expected_for_phone = expected.clone();
 
         let phone_thread = std::thread::spawn(move || {
@@ -326,8 +325,7 @@ mod tests {
         let (mut desktop_stream, mut phone_stream) = socket_pair();
         let (desktop_directory, desktop_store) = temp_trust_store("desktop-reject");
         let (phone_directory, phone_store) = temp_trust_store("phone-reject");
-        let phone_thread_store =
-            TrustStore::new(phone_directory.join("trusted-peer.sha256"));
+        let phone_thread_store = TrustStore::new(phone_directory.join("trusted-peer.sha256"));
 
         let phone_thread = std::thread::spawn(move || {
             perform_pairing(
