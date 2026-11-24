@@ -6,7 +6,10 @@ use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
 
 use crate::controller::InputSequenceTracker;
 use crate::pairing::{PairingRequest, perform_pairing};
-use crate::protocol::{ApplicationMessage, FrameReader, PeerRole, decode_application_message};
+use crate::protocol::{
+    ApplicationMessage, FrameReader, PeerRole, decode_application_message,
+    write_application_message,
+};
 use crate::security::{
     TlsIdentity, TrustDecision, TrustStore, certificate_fingerprint, server_config,
 };
@@ -254,7 +257,7 @@ where
     Ok(())
 }
 
-fn receive_controller_stream<S: Read>(
+fn receive_controller_stream<S: Read + Write>(
     stream: &mut S,
     stop: &AtomicBool,
     on_status: &impl Fn(String),
@@ -267,6 +270,9 @@ fn receive_controller_stream<S: Read>(
     let mut last_input = Instant::now();
     let mut controls_released = true;
     let mut controller_connected: Option<bool> = None;
+    let mut heartbeat_nonce = 1_u64;
+    let mut awaiting_pong: Option<(u64, Instant)> = None;
+    let mut last_ping = Instant::now() - Duration::from_secs(2);
 
     loop {
         if stop.load(Ordering::Relaxed) {
@@ -283,6 +289,15 @@ fn receive_controller_stream<S: Read>(
                             gamepad.apply_state(&state)?;
                             controls_released = false;
                         }
+                    }
+                }
+                ApplicationMessage::Pong { nonce } => {
+                    match awaiting_pong {
+                        Some((expected, _)) if expected == nonce => awaiting_pong = None,
+                        _ => return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "received an unexpected WiPad heartbeat response",
+                        )),
                     }
                 }
                 ApplicationMessage::ControllerStatus { connected } => {
@@ -324,6 +339,26 @@ fn receive_controller_stream<S: Read>(
                 if !controls_released && input_idle >= Duration::from_secs(2) {
                     gamepad.release_all()?;
                     controls_released = true;
+                }
+
+                if let Some((_, sent_at)) = awaiting_pong {
+                    if sent_at.elapsed() >= Duration::from_secs(7) {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "phone heartbeat timed out",
+                        ));
+                    }
+                } else if last_ping.elapsed() >= Duration::from_secs(2) {
+                    write_application_message(
+                        stream,
+                        &ApplicationMessage::Ping {
+                            nonce: heartbeat_nonce,
+                        },
+                    )?;
+                    stream.flush()?;
+                    awaiting_pong = Some((heartbeat_nonce, Instant::now()));
+                    heartbeat_nonce = heartbeat_nonce.wrapping_add(1).max(1);
+                    last_ping = Instant::now();
                 }
 
                 // A trusted peer that stops sending snapshots is no longer a
