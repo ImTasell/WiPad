@@ -9,25 +9,15 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class FrameCodecTest {
-    // Shared wire vector: payload 10 20 30 -> 00 00 00 03 10 20 30.
-    private val payload = byteArrayOf(0x10, 0x20, 0x30)
-    private val encoded = byteArrayOf(0x00, 0x00, 0x00, 0x03, 0x10, 0x20, 0x30)
+    private val payload = GoldenVectors.bytes("frame_sample").copyOfRange(4, 7)
+    private val encoded = GoldenVectors.bytes("frame_sample")
 
     @Test
-    fun writesTheSharedBigEndianVector() {
+    fun writesAndReadsTheCanonicalBigEndianFrameVector() {
         val output = ByteArrayOutputStream()
-
         FrameCodec.writeFrame(output, payload)
-
         assertArrayEquals(encoded, output.toByteArray())
-    }
-
-    @Test
-    fun readsTheSharedBigEndianVector() {
-        assertArrayEquals(
-            payload,
-            FrameCodec.readFrame(ByteArrayInputStream(encoded)),
-        )
+        assertArrayEquals(payload, FrameCodec.readFrame(ByteArrayInputStream(encoded)))
     }
 
     @Test
@@ -45,28 +35,18 @@ class FrameCodecTest {
     }
 
     @Test
-    fun rejectsEmptyFrames() {
-        assertReadRejected(byteArrayOf(0, 0, 0, 0))
-
-        try {
-            FrameCodec.writeFrame(ByteArrayOutputStream(), byteArrayOf())
-            fail("Expected IOException")
-        } catch (_: IOException) {
-            // Expected.
+    fun rejectsSharedMalformedFrameVectors() {
+        listOf(
+            "invalid_frame_empty",
+            "invalid_frame_oversized",
+            "invalid_frame_truncated",
+        ).forEach { vectorName ->
+            assertReadRejected(GoldenVectors.bytes(vectorName))
         }
     }
 
     @Test
-    fun rejectsOversizedFramesBeforeReadingThePayload() {
-        val length = FrameCodec.MAX_FRAME_LENGTH + 1
-        val header = byteArrayOf(
-            0,
-            0,
-            (length ushr 8).toByte(),
-            length.toByte(),
-        )
-        assertReadRejected(header)
-
+    fun rejectsOversizedFramesWhenWriting() {
         try {
             FrameCodec.writeFrame(
                 ByteArrayOutputStream(),
@@ -76,11 +56,6 @@ class FrameCodecTest {
         } catch (_: IOException) {
             // Expected.
         }
-    }
-
-    @Test
-    fun rejectsTruncatedPayloads() {
-        assertReadRejected(byteArrayOf(0, 0, 0, 3, 0x10, 0x20))
     }
 
     private fun assertReadRejected(bytes: ByteArray) {
