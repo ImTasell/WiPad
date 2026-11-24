@@ -5,7 +5,6 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 
-use crate::controller::InputSequenceTracker;
 use crate::pairing::{PairingRequest, perform_pairing};
 use crate::protocol::{
     ApplicationMessage, FrameReader, HeartbeatTracker, PeerRole, decode_application_message,
@@ -14,6 +13,7 @@ use crate::protocol::{
 use crate::security::{
     TlsIdentity, TrustDecision, TrustStore, certificate_fingerprint, server_config,
 };
+use crate::session::{SessionAction, SessionInputTracker};
 use crate::virtual_gamepad::VirtualGamepad;
 use std::path::PathBuf;
 use std::sync::{
@@ -278,19 +278,19 @@ fn receive_controller_stream<S: Read + Write>(
     on_status: &impl Fn(String),
 ) -> io::Result<()> {
     let mut decoder = FrameReader::new();
-    let mut sequence = InputSequenceTracker::default();
+    let mut input_session = SessionInputTracker::new(Instant::now());
     let mut gamepad = VirtualGamepad::create()?;
     gamepad.release_all()?;
-
-    let mut last_input = Instant::now();
-    let mut controls_released = true;
-    let mut controller_connected: Option<bool> = None;
     let mut heartbeat = HeartbeatTracker::default();
 
     loop {
         if stop.load(Ordering::Relaxed) {
             gamepad.release_all()?;
             return Ok(());
+        }
+
+        if let Some(SessionAction::Release) = input_session.poll(Instant::now())? {
+            gamepad.release_all()?;
         }
 
         if let Some(nonce) = heartbeat.poll(Instant::now())? {
@@ -300,33 +300,24 @@ fn receive_controller_stream<S: Read + Write>(
 
         match decoder.read_next(stream) {
             Ok(Some(frame)) => match decode_application_message(&frame)? {
-                ApplicationMessage::InputState(state) => {
-                    if sequence.accept(&state)? {
-                        last_input = Instant::now();
-                        if controller_connected != Some(false) {
-                            gamepad.apply_state(&state)?;
-                            controls_released = false;
+                ApplicationMessage::InputState(_) | ApplicationMessage::ControllerStatus { .. } => {
+                    if let Some(action) = input_session.handle(
+                        decode_application_message(&frame)?,
+                        Instant::now(),
+                    )? {
+                        match action {
+                            SessionAction::Apply(state) => gamepad.apply_state(&state)?,
+                            SessionAction::Release => gamepad.release_all()?,
+                            SessionAction::ControllerConnected => on_status(
+                                "Bluetooth controller connected · receiving input".to_owned(),
+                            ),
+                            SessionAction::ControllerDisconnected => on_status(
+                                "Phone connected · waiting for Bluetooth controller".to_owned(),
+                            ),
                         }
                     }
                 }
                 ApplicationMessage::Pong { nonce } => heartbeat.receive_pong(nonce)?,
-                ApplicationMessage::ControllerStatus { connected } => {
-                    if controller_connected != Some(connected) {
-                        controller_connected = Some(connected);
-                        if !connected {
-                            gamepad.release_all()?;
-                            controls_released = true;
-                            on_status(
-                                "Phone connected · waiting for Bluetooth controller".to_owned(),
-                            );
-                        } else {
-                            on_status(
-                                "Bluetooth controller connected · receiving input".to_owned(),
-                            );
-                        }
-                    }
-                    last_input = Instant::now();
-                }
                 _ => {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
@@ -342,25 +333,7 @@ fn receive_controller_stream<S: Read + Write>(
                 if matches!(
                     error.kind(),
                     io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) =>
-            {
-                // A silent or stalled phone must never leave a button held forever.
-                let input_idle = last_input.elapsed();
-                if !controls_released && input_idle >= Duration::from_secs(2) {
-                    gamepad.release_all()?;
-                    controls_released = true;
-                }
-
-                // A trusted peer that stops sending snapshots is no longer a
-                // usable session. Close it so the phone's reconnect loop can
-                // establish a fresh authenticated connection.
-                if input_idle >= Duration::from_secs(15) {
-                    return Err(io::Error::new(
-                        io::ErrorKind::TimedOut,
-                        "controller stream was idle for 15 seconds",
-                    ));
-                }
-            }
+                ) => {}
             Err(error) => return Err(error),
         }
     }
