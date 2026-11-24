@@ -1,8 +1,6 @@
 use rcgen::{CertificateParams, KeyPair, PKCS_ECDSA_P256_SHA256};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::pki_types::{
-    CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime,
-};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
 use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use rustls::{
     ClientConfig, ClientConnection, CryptoProvider, DigitallySignedStruct, DistinguishedName,
@@ -92,10 +90,13 @@ impl TlsIdentity {
 
         match options.open(path) {
             Ok(mut file) => {
-                let certificate_length = u32::try_from(identity.certificate_der.len())
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "certificate too large"))?;
-                let key_length = u32::try_from(identity.private_key_pkcs8.len())
-                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "private key too large"))?;
+                let certificate_length =
+                    u32::try_from(identity.certificate_der.len()).map_err(|_| {
+                        io::Error::new(io::ErrorKind::InvalidData, "certificate too large")
+                    })?;
+                let key_length = u32::try_from(identity.private_key_pkcs8.len()).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "private key too large")
+                })?
 
                 let result = file
                     .write_all(IDENTITY_MAGIC)
@@ -389,7 +390,9 @@ fn validate_peer_certificate(
     expected_fingerprint: Option<&[u8; 32]>,
 ) -> Result<[u8; 32], TlsError> {
     if certificate_der.is_empty() || certificate_der.len() > MAX_CERTIFICATE_LENGTH {
-        return Err(TlsError::General("peer certificate length is invalid".to_owned()));
+        return Err(TlsError::General(
+            "peer certificate length is invalid".to_owned(),
+        ));
     }
 
     let (remaining, certificate) = parse_x509_certificate(certificate_der)
@@ -617,7 +620,10 @@ mod tests {
 
         assert!(identity.certificate_der.len() <= MAX_CERTIFICATE_LENGTH);
         assert!(validate_peer_certificate(&identity.certificate_der, None).is_ok());
-        assert_eq!(identity.fingerprint(), certificate_fingerprint(identity.certificate_der()));
+        assert_eq!(
+            identity.fingerprint(),
+            certificate_fingerprint(identity.certificate_der())
+        );
     }
 
     #[test]
@@ -637,7 +643,10 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
         }
 
         fs::remove_dir_all(directory).unwrap();
