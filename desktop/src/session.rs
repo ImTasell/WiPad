@@ -96,7 +96,9 @@ impl SessionInputTracker {
 mod tests {
     use super::*;
     use crate::controller::{BUTTON_SOUTH, ControllerState};
-    use crate::protocol::{decode_application_message, encode_application_message, write_frame, FrameReader};
+    use crate::protocol::{
+        FrameReader, decode_application_message, encode_application_message, write_frame,
+    };
 
     fn pressed(sequence: u64) -> ControllerState {
         ControllerState {
@@ -132,15 +134,24 @@ mod tests {
         let start = Instant::now();
         let mut session = SessionInputTracker::new(start);
         assert_eq!(
-            session.handle(ApplicationMessage::InputState(pressed(1)), start).unwrap(),
+            session
+                .handle(ApplicationMessage::InputState(pressed(1)), start)
+                .unwrap(),
             Some(SessionAction::Apply(pressed(1)))
         );
         assert_eq!(
-            session.handle(ApplicationMessage::ControllerStatus { connected: false }, start).unwrap(),
+            session
+                .handle(
+                    ApplicationMessage::ControllerStatus { connected: false },
+                    start
+                )
+                .unwrap(),
             Some(SessionAction::ControllerDisconnected)
         );
         assert_eq!(
-            session.handle(ApplicationMessage::InputState(pressed(2)), start).unwrap(),
+            session
+                .handle(ApplicationMessage::InputState(pressed(2)), start)
+                .unwrap(),
             None
         );
         assert_eq!(session.poll(start + Duration::from_secs(3)).unwrap(), None);
@@ -150,9 +161,19 @@ mod tests {
     fn reconnecting_controller_requires_a_fresh_snapshot() {
         let start = Instant::now();
         let mut session = SessionInputTracker::new(start);
-        session.handle(ApplicationMessage::ControllerStatus { connected: false }, start).unwrap();
+        session
+            .handle(
+                ApplicationMessage::ControllerStatus { connected: false },
+                start,
+            )
+            .unwrap();
         assert_eq!(
-            session.handle(ApplicationMessage::ControllerStatus { connected: true }, start).unwrap(),
+            session
+                .handle(
+                    ApplicationMessage::ControllerStatus { connected: true },
+                    start
+                )
+                .unwrap(),
             Some(SessionAction::ControllerConnected)
         );
         assert_eq!(
@@ -165,16 +186,23 @@ mod tests {
     fn stale_or_duplicate_snapshots_do_not_refresh_session_liveness() {
         let start = Instant::now();
         let mut session = SessionInputTracker::new(start);
-        session.handle(ApplicationMessage::InputState(pressed(4)), start).unwrap();
+        session
+            .handle(ApplicationMessage::InputState(pressed(4)), start)
+            .unwrap();
         assert_eq!(
-            session.handle(
-                ApplicationMessage::InputState(pressed(4)),
-                start + Duration::from_secs(14),
-            ).unwrap(),
+            session
+                .handle(
+                    ApplicationMessage::InputState(pressed(4)),
+                    start + Duration::from_secs(14),
+                )
+                .unwrap(),
             None
         );
         assert_eq!(
-            session.poll(start + Duration::from_secs(15)).unwrap_err().kind(),
+            session
+                .poll(start + Duration::from_secs(15))
+                .unwrap_err()
+                .kind(),
             io::ErrorKind::TimedOut
         );
     }
@@ -183,7 +211,9 @@ mod tests {
     fn input_stall_releases_once_then_times_out() {
         let start = Instant::now();
         let mut session = SessionInputTracker::new(start);
-        session.handle(ApplicationMessage::InputState(pressed(1)), start).unwrap();
+        session
+            .handle(ApplicationMessage::InputState(pressed(1)), start)
+            .unwrap();
 
         assert_eq!(
             session.poll(start + INPUT_RELEASE_AFTER).unwrap(),
@@ -194,7 +224,10 @@ mod tests {
             None
         );
         assert_eq!(
-            session.poll(start + SESSION_IDLE_TIMEOUT).unwrap_err().kind(),
+            session
+                .poll(start + SESSION_IDLE_TIMEOUT)
+                .unwrap_err()
+                .kind(),
             io::ErrorKind::TimedOut
         );
     }
@@ -203,7 +236,9 @@ mod tests {
     fn a_new_transport_session_starts_with_a_fresh_sequence_window() {
         let start = Instant::now();
         let mut first = SessionInputTracker::new(start);
-        first.handle(ApplicationMessage::InputState(pressed(99)), start).unwrap();
+        first
+            .handle(ApplicationMessage::InputState(pressed(99)), start)
+            .unwrap();
 
         let mut reconnected = SessionInputTracker::new(start + Duration::from_secs(1));
         assert_eq!(
