@@ -2,7 +2,6 @@ use snow::{Builder, HandshakeState, NoiseParams, TransportState};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::protocol::MAX_FRAME_LENGTH;
@@ -135,12 +134,8 @@ impl NoiseIdentity {
     pub fn default_path() -> io::Result<PathBuf> {
         let config_root = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
-            .or_else(|| {
-                std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config"))
-            })
-            .ok_or_else(|| {
-                io::Error::new(io::ErrorKind::NotFound, "no user config directory")
-            })?;
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no user config directory"))?;
 
         Ok(config_root.join("wipad").join("identity.noise"))
     }
@@ -382,16 +377,15 @@ impl NoiseTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+    use uuid::Uuid;
+
 
     fn perform_xx_handshake() -> (EstablishedSession, EstablishedSession) {
         let phone_identity = NoiseIdentity::generate().unwrap();
         let desktop_identity = NoiseIdentity::generate().unwrap();
 
-        let mut phone =
-            NoiseHandshake::new(&phone_identity, HandshakeRole::Initiator).unwrap();
-        let mut desktop =
-            NoiseHandshake::new(&desktop_identity, HandshakeRole::Responder).unwrap();
+        let mut phone = NoiseHandshake::new(&phone_identity, HandshakeRole::Initiator).unwrap();
+        let mut desktop = NoiseHandshake::new(&desktop_identity, HandshakeRole::Responder).unwrap();
 
         let message_one = phone.write_message().unwrap();
         desktop.read_message(&message_one).unwrap();
@@ -476,7 +470,10 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
         }
 
         fs::remove_dir_all(directory).unwrap();
