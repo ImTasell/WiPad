@@ -426,7 +426,7 @@ mod tests {
 }
 
 pub const PROTOCOL_MAJOR: u8 = 1;
-pub const PROTOCOL_MINOR: u8 = 1;
+pub const PROTOCOL_MINOR: u8 = 2;
 pub const MAX_DISPLAY_NAME_LENGTH: usize = 64;
 
 const MESSAGE_PAIRING_HELLO: u8 = 0x01;
@@ -434,6 +434,8 @@ const MESSAGE_PAIRING_DECISION: u8 = 0x02;
 const MESSAGE_SESSION_READY: u8 = 0x03;
 const MESSAGE_INPUT_STATE: u8 = crate::controller::MESSAGE_INPUT_STATE;
 const MESSAGE_CONTROLLER_STATUS: u8 = 0x11;
+const MESSAGE_PING: u8 = 0x12;
+const MESSAGE_PONG: u8 = 0x13;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PeerRole {
@@ -477,6 +479,8 @@ pub enum ApplicationMessage {
     ControllerStatus {
         connected: bool,
     },
+    Ping { nonce: u64 },
+    Pong { nonce: u64 },
 }
 
 pub fn encode_application_message(message: &ApplicationMessage) -> io::Result<Vec<u8>> {
@@ -513,6 +517,14 @@ pub fn encode_application_message(message: &ApplicationMessage) -> io::Result<Ve
         ApplicationMessage::ControllerStatus { connected } => {
             payload.push(MESSAGE_CONTROLLER_STATUS);
             payload.push(u8::from(*connected));
+        }
+        ApplicationMessage::Ping { nonce } => {
+            payload.push(MESSAGE_PING);
+            payload.extend_from_slice(&nonce.to_be_bytes());
+        }
+        ApplicationMessage::Pong { nonce } => {
+            payload.push(MESSAGE_PONG);
+            payload.extend_from_slice(&nonce.to_be_bytes());
         }
         ApplicationMessage::PairingDecision { approved } => {
             payload.push(MESSAGE_PAIRING_DECISION);
@@ -603,6 +615,20 @@ pub fn decode_application_message(payload: &[u8]) -> io::Result<ApplicationMessa
             Ok(ApplicationMessage::ControllerStatus {
                 connected: payload[1] == 1,
             })
+        }
+        MESSAGE_PING | MESSAGE_PONG => {
+            if payload.len() != 9 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "WiPad heartbeat message is malformed",
+                ));
+            }
+            let nonce = u64::from_be_bytes(payload[1..9].try_into().expect("eight-byte nonce"));
+            if payload[0] == MESSAGE_PING {
+                Ok(ApplicationMessage::Ping { nonce })
+            } else {
+                Ok(ApplicationMessage::Pong { nonce })
+            }
         }
         MESSAGE_PAIRING_DECISION => {
             if payload.len() != 2 || payload[1] > 1 {
