@@ -5,13 +5,12 @@ plugins {
 
 android {
     namespace = "dev.wipad.app"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "dev.wipad.app"
         minSdk = 30
-        // Keep runtime behavior opt-in separate from compile-time API access.
-        targetSdk = 36
+        targetSdk = 30
         versionCode = 1
         versionName = "0.1.0"
 
@@ -30,13 +29,14 @@ android {
     }
 }
 
-
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
+    // Compose 1.11.x stays compatible with the stable Android 16 / API 36 SDK.
+    val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
-    implementation("androidx.activity:activity-compose:1.12.2")
+    // Keep Activity on the API-36-compatible line as well.
+    implementation("androidx.activity:activity-compose:1.11.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
