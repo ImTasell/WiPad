@@ -35,6 +35,12 @@ private val WiPadColors = darkColorScheme(
     surface = Color(0xFF14283B),
 )
 
+private data class DesktopEndpoint(
+    val address: InetAddress,
+    val port: Int,
+    val serviceName: String,
+)
+
 class MainActivity : ComponentActivity() {
     private var desktopStatus by mutableStateOf("Starting LAN discovery…")
     private var pendingPairing by mutableStateOf<PairingPrompt?>(null)
@@ -42,6 +48,7 @@ class MainActivity : ComponentActivity() {
         onPendingChanged = { prompt -> runOnUiThread { pendingPairing = prompt } },
     )
     private var discovery: LanDiscovery? = null
+    @Volatile private var discoveredDesktop: DesktopEndpoint? = null
     private val sessionConnecting = AtomicBoolean(false)
     private val controllerInput = AndroidControllerInput()
     private val inputSequence = AtomicLong(0)
@@ -72,6 +79,7 @@ class MainActivity : ComponentActivity() {
             onDesktopResolved = { address, port, serviceName ->
                 connectToDesktop(address, port, serviceName)
             },
+            onDesktopLost = ::onDesktopLost,
         ).also { it.start() }
     }
 
@@ -129,7 +137,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun onDesktopLost(serviceName: String) {
+        if (discoveredDesktop?.serviceName != serviceName) return
+        discoveredDesktop = null
+        phoneSession?.let { session ->
+            phoneSession = null
+            runCatching { session.close() }
+        }
+    }
+
     private fun connectToDesktop(address: InetAddress, port: Int, serviceName: String) {
+        discoveredDesktop = DesktopEndpoint(address, port, serviceName)
         if (phoneSession != null || !sessionConnecting.compareAndSet(false, true)) return
         runOnUiThread { desktopStatus = "Securing connection to $serviceName" }
 
@@ -137,12 +155,17 @@ class MainActivity : ComponentActivity() {
             var attempt = 0
             try {
                 while (activityStarted && !Thread.currentThread().isInterrupted) {
+                    val endpoint = discoveredDesktop
+                    if (endpoint == null) {
+                        Thread.sleep(250)
+                        continue
+                    }
                     try {
                         val identity = TlsIdentity.loadOrCreate()
                         val pinStore = TlsPeerPinStore(this)
                         val session = TlsPairingClient(identity, pinStore).connect(
-                            address = address,
-                            port = port,
+                            address = endpoint.address,
+                            port = endpoint.port,
                             displayName = "WiPad Phone",
                             onSocketCreated = { connectingSocket = it },
                         ) { request ->
@@ -153,6 +176,10 @@ class MainActivity : ComponentActivity() {
                         if (!activityStarted || Thread.currentThread().isInterrupted) {
                             session.close()
                             break
+                        }
+                        if (discoveredDesktop != endpoint) {
+                            session.close()
+                            continue
                         }
 
                         phoneSession = session
