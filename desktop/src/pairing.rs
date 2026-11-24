@@ -247,10 +247,6 @@ where
         ));
     }
 
-    if !reconnecting {
-        trust_store.store(&peer_fingerprint)?;
-    }
-
     flush_message(stream, &ApplicationMessage::SessionReady)?;
     match read_application_message(stream)? {
         ApplicationMessage::SessionReady => {}
@@ -260,6 +256,10 @@ where
                 "peer did not confirm SESSION_READY",
             ));
         }
+    }
+
+    if !reconnecting {
+        trust_store.store(&peer_fingerprint)?;
     }
 
     Ok(PairingResult {
