@@ -47,6 +47,7 @@ class LanDiscovery(
     private var browserRunning = false
     private var restartRequested = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private val discoveredServices = mutableSetOf<String>()
     private val resolvingServices = mutableSetOf<String>()
     private val resolvedServices = mutableSetOf<String>()
 
@@ -81,9 +82,11 @@ class LanDiscovery(
             }
             val registrationListener = object : NsdManager.RegistrationListener {
                 override fun onServiceRegistered(info: NsdServiceInfo) {
+                    if (closed) return
                     onStatus("Broadcasting · scanning for desktop")
                 }
                 override fun onRegistrationFailed(info: NsdServiceInfo, errorCode: Int) {
+                    if (closed) return
                     onStatus("Discovery advertisement failed ($errorCode)")
                 }
                 override fun onServiceUnregistered(info: NsdServiceInfo) = Unit
@@ -103,19 +106,23 @@ class LanDiscovery(
                     if (closed || service.serviceType != DESKTOP_SERVICE) return
                     val serviceKey = service.serviceName
                     synchronized(resolvingServices) {
-                        if (serviceKey in resolvingServices || serviceKey in resolvedServices) return
+                        if (serviceKey in discoveredServices) return
+                        discoveredServices.add(serviceKey)
                         resolvingServices.add(serviceKey)
                     }
                     try {
                             nsd.resolveService(service, object : NsdManager.ResolveListener {
                                 override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) {
-                                    synchronized(resolvingServices) { resolvingServices.remove(serviceKey) }
+                                    synchronized(resolvingServices) {
+                                        resolvingServices.remove(serviceKey)
+                                        discoveredServices.remove(serviceKey)
+                                    }
                                     if (!closed) onStatus("Found desktop · resolving failed ($errorCode)")
                                 }
                                 override fun onServiceResolved(info: NsdServiceInfo) {
                                     synchronized(resolvingServices) {
                                         resolvingServices.remove(serviceKey)
-                                        if (closed) return
+                                        if (closed || serviceKey !in discoveredServices) return
                                         resolvedServices.add(serviceKey)
                                     }
                                     val host = info.host
@@ -136,6 +143,7 @@ class LanDiscovery(
                 override fun onServiceLost(service: NsdServiceInfo) {
                     if (service.serviceType == DESKTOP_SERVICE) {
                         synchronized(resolvingServices) {
+                            discoveredServices.remove(service.serviceName)
                             resolvingServices.remove(service.serviceName)
                             resolvedServices.remove(service.serviceName)
                         }
@@ -156,7 +164,12 @@ class LanDiscovery(
                     runCatching { nsd.stopServiceDiscovery(this) }
                 }
                 override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
+                    browserRunning = false
                     onStatus("Could not stop discovery ($errorCode)")
+                    if (restartRequested && !closed) {
+                        restartRequested = false
+                        startBrowsing()
+                    }
                 }
             }
             discovery = discoveryListener
@@ -197,6 +210,12 @@ class LanDiscovery(
     private fun restartBrowser() {
         if (closed) return
         val listener = discovery ?: return
+        synchronized(resolvingServices) {
+            discoveredServices.clear()
+            discoveredServices.clear()
+            resolvingServices.clear()
+            resolvedServices.clear()
+        }
         if (browserRunning) {
             restartRequested = true
             runCatching { nsd.stopServiceDiscovery(listener) }
