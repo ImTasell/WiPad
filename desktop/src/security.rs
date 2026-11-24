@@ -2,13 +2,14 @@ use snow::{Builder, HandshakeState, TransportState, params::NoiseParams};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::protocol::MAX_FRAME_LENGTH;
 
 const NOISE_PROTOCOL: &str = "Noise_XX_25519_ChaChaPoly_SHA256";
 const IDENTITY_MAGIC: &[u8; 5] = b"WIPK\x01";
-const PRIVATE_KEY_LENGTH: usize = 32;
+const STATIC_KEY_LENGTH: usize = 32;
 const AEAD_TAG_LENGTH: usize = 16;
 const MAX_PLAINTEXT_LENGTH: usize = MAX_FRAME_LENGTH - AEAD_TAG_LENGTH;
 
@@ -33,7 +34,7 @@ impl NoiseIdentity {
             .generate_keypair()
             .map_err(|error| io::Error::other(error.to_string()))?;
 
-        if keypair.private.len() != PRIVATE_KEY_LENGTH {
+        if keypair.private.len() != STATIC_KEY_LENGTH {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Noise provider returned an unexpected private-key length",
@@ -112,11 +113,11 @@ impl NoiseIdentity {
 
         let mut file = File::open(path)?;
         let mut bytes = Zeroizing::new(Vec::with_capacity(
-            IDENTITY_MAGIC.len() + PRIVATE_KEY_LENGTH,
+            IDENTITY_MAGIC.len() + STATIC_KEY_LENGTH,
         ));
         file.read_to_end(&mut bytes)?;
 
-        if bytes.len() != IDENTITY_MAGIC.len() + PRIVATE_KEY_LENGTH
+        if bytes.len() != IDENTITY_MAGIC.len() + STATIC_KEY_LENGTH
             || &bytes[..IDENTITY_MAGIC.len()] != IDENTITY_MAGIC
         {
             return Err(io::Error::new(
@@ -328,10 +329,10 @@ impl TrustStore {
         }
 
         let mut file = File::open(&self.path)?;
-        let mut bytes = Vec::with_capacity(TRUST_MAGIC.len() + PRIVATE_KEY_LENGTH);
+        let mut bytes = Vec::with_capacity(TRUST_MAGIC.len() + STATIC_KEY_LENGTH);
         file.read_to_end(&mut bytes)?;
 
-        if bytes.len() != TRUST_MAGIC.len() + PRIVATE_KEY_LENGTH
+        if bytes.len() != TRUST_MAGIC.len() + STATIC_KEY_LENGTH
             || &bytes[..TRUST_MAGIC.len()] != TRUST_MAGIC
         {
             return Err(io::Error::new(
@@ -345,7 +346,7 @@ impl TrustStore {
 
     /// Persists a peer key after the user approves the first-contact pairing.
     pub fn store(&self, peer_public_key: &[u8]) -> io::Result<()> {
-        if peer_public_key.len() != PRIVATE_KEY_LENGTH {
+        if peer_public_key.len() != STATIC_KEY_LENGTH {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "WiPad peer public key must be exactly 32 bytes",
@@ -504,7 +505,6 @@ impl NoiseTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
 
     fn perform_xx_handshake() -> (EstablishedSession, EstablishedSession) {
         let phone_identity = NoiseIdentity::generate().unwrap();
@@ -640,7 +640,7 @@ mod tests {
         );
 
         store.store(&peer_key).unwrap();
-        assert_eq!(store.load().unwrap().unwrap(), peer_key);
+        assert_eq!(store.load().unwrap().unwrap(), peer_key.to_vec());
         assert_eq!(
             store.decision(&peer_key).unwrap(),
             TrustDecision::Trusted
@@ -656,7 +656,7 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             assert_eq!(
-                fs::metadata(store.path).unwrap().permissions().mode() & 0o777,
+                fs::metadata(&store.path).unwrap().permissions().mode() & 0o777,
                 0o600
             );
         }
