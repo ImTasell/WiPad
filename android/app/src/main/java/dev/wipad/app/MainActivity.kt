@@ -103,14 +103,21 @@ class MainActivity : ComponentActivity() {
 
     fun rejectPendingPairing(): Boolean = pairingApprovals.decide(false)
 
-    fun forgetTrustedDesktop() {
+    internal fun currentPairingPrompt(): PairingPrompt? = pairingApprovals.pendingRequest()
+
+    fun forgetTrustedDesktop(): Boolean {
         pairingApprovals.cancelPending()
+        val revoked = runCatching { TlsPeerPinStore(this).forgetDesktop() }.isSuccess
+        if (!revoked) {
+            runOnUiThread { desktopStatus = "Could not revoke trusted desktop" }
+            return false
+        }
         phoneSession?.let {
             phoneSession = null
             runCatching { it.close() }
         }
-        runCatching { TlsPeerPinStore(this).forgetDesktop() }
         runOnUiThread { desktopStatus = "Trusted desktop forgotten · scanning" }
+        return true
     }
 
     private fun joinWorker(worker: Thread?) {
