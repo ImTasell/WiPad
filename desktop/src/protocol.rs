@@ -474,7 +474,9 @@ pub enum ApplicationMessage {
     },
     SessionReady,
     InputState(ControllerState),
-    ControllerStatus { connected: bool },
+    ControllerStatus {
+        connected: bool,
+    },
 }
 
 pub fn encode_application_message(message: &ApplicationMessage) -> io::Result<Vec<u8>> {
