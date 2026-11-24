@@ -2,6 +2,7 @@ pub mod controller;
 pub mod pairing;
 pub mod protocol;
 pub mod security;
+pub mod virtual_gamepad;
 
 mod discovery;
 
