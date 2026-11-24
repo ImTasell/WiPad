@@ -339,6 +339,20 @@ mod tests {
     }
 
     #[test]
+    fn encodes_and_decodes_the_shared_unicode_pairing_hello_vector() {
+        let message = ApplicationMessage::PairingHello {
+            major: 1,
+            minor: 2,
+            role: PeerRole::Phone,
+            display_name: "Phone 📱".to_owned(),
+        };
+        let vector = golden_vector("pairing_hello_phone_unicode");
+
+        assert_eq!(encode_application_message(&message).unwrap(), vector);
+        assert_eq!(decode_application_message(&vector).unwrap(), message);
+    }
+
+    #[test]
     fn encodes_and_decodes_the_shared_desktop_pairing_hello_vector() {
         let message = ApplicationMessage::PairingHello {
             major: 1,
@@ -500,6 +514,7 @@ mod tests {
             "invalid_pairing_hello_major",
             "invalid_pairing_hello_role",
             "invalid_pairing_hello_utf8",
+            "invalid_pairing_hello_control",
             "invalid_pairing_decision_boolean",
             "invalid_controller_status_boolean",
             "invalid_ping_truncated",
