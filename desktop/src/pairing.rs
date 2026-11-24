@@ -78,10 +78,12 @@ where
     let peer_hello = match read_application_message(stream)? {
         ApplicationMessage::PairingHello {
             major,
+            minor,
             role,
             display_name,
-            ..
-        } if major == PROTOCOL_MAJOR && role == expected_peer_role(local_role) => display_name,
+        } if major == PROTOCOL_MAJOR
+            && minor >= PROTOCOL_MINOR
+            && role == expected_peer_role(local_role) => display_name,
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
