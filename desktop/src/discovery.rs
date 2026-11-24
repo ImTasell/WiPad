@@ -1,4 +1,4 @@
-use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
+use mdns_sd::{RecvTimeoutError, ServiceDaemon, ServiceEvent, ServiceInfo};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::net::{IpAddr, TcpListener, UdpSocket};
@@ -35,9 +35,10 @@ impl Discovery {
             ("role", "desktop"),
             ("name", "WiPad Desktop"),
         ];
+        let instance_name = format!("WiPadDesktop-{}", &installation_id[..8]);
         let service = ServiceInfo::new(
             DESKTOP_SERVICE,
-            "WiPadDesktop",
+            instance_name.as_str(),
             "wipad-desktop.local.",
             local_ip.to_string(),
             SESSION_PORT,
@@ -81,25 +82,38 @@ impl Discovery {
             .spawn(move || {
                 callback("Broadcasting · scanning for phone".to_owned());
                 while !browse_stop.load(Ordering::Relaxed) {
-                    if let Ok(ServiceEvent::ServiceResolved(service)) =
-                        receiver.recv_timeout(Duration::from_millis(500))
-                    {
-                        let compatible = service
-                            .get_property_val_str("pv")
-                            .is_some_and(|version| version.split(',').any(|v| v == PROTOCOL_MAJOR));
-                        let is_phone = service.get_property_val_str("role") == Some("phone");
-                        if compatible && is_phone {
-                            let name = service
-                                .get_property_val_str("name")
-                                .unwrap_or("WiPad Phone");
-                            let address = service
-                                .get_addresses_v4()
-                                .iter()
-                                .next()
-                                .map(ToString::to_string)
-                                .unwrap_or_else(|| "address unavailable".to_owned());
-                            callback(format!("Phone found · {name} · {address}"));
+                    match receiver.recv_timeout(Duration::from_millis(500)) {
+                        Ok(ServiceEvent::ServiceResolved(service)) => {
+                            if is_compatible_phone(
+                                service.get_property_val_str("pv"),
+                                service.get_property_val_str("role"),
+                            ) {
+                                let name = service
+                                    .get_property_val_str("name")
+                                    .unwrap_or("WiPad Phone");
+                                let address = service
+                                    .get_addresses_v4()
+                                    .iter()
+                                    .next()
+                                    .map(ToString::to_string)
+                                    .unwrap_or_else(|| "address unavailable".to_owned());
+                                callback(format!("Phone found · {name} · {address}"));
+                            }
                         }
+                        Ok(ServiceEvent::ServiceRemoved(service_type, _))
+                            if service_type == PHONE_SERVICE =>
+                        {
+                            callback("Broadcasting · scanning for phone".to_owned());
+                        }
+                        Ok(ServiceEvent::SearchStopped(_)) => {
+                            callback("Discovery stopped".to_owned());
+                        }
+                        Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Disconnected) => {
+                            callback("Discovery unavailable · browser disconnected".to_owned());
+                            break;
+                        }
+                        _ => {}
                     }
                 }
             })
@@ -113,6 +127,43 @@ impl Drop for Discovery {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         let _ = self.daemon.shutdown();
+    }
+}
+
+fn is_compatible_phone(protocol_versions: Option<&str>, role: Option<&str>) -> bool {
+    role == Some("phone")
+        && protocol_versions
+            .is_some_and(|versions| versions.split(',').any(|version| version.trim() == PROTOCOL_MAJOR))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_compatible_phone;
+
+    #[test]
+    fn accepts_a_phone_with_a_supported_major_version() {
+        assert!(is_compatible_phone(Some("1"), Some("phone")));
+    }
+
+    #[test]
+    fn accepts_a_supported_version_in_a_version_list() {
+        assert!(is_compatible_phone(Some("2, 1, 3"), Some("phone")));
+    }
+
+    #[test]
+    fn rejects_an_unsupported_version() {
+        assert!(!is_compatible_phone(Some("2"), Some("phone")));
+    }
+
+    #[test]
+    fn rejects_a_different_role() {
+        assert!(!is_compatible_phone(Some("1"), Some("desktop")));
+    }
+
+    #[test]
+    fn rejects_missing_metadata() {
+        assert!(!is_compatible_phone(None, Some("phone")));
+        assert!(!is_compatible_phone(Some("1"), None));
     }
 }
 
