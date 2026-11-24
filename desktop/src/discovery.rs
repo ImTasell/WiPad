@@ -1,4 +1,4 @@
-use mdns_sd::{RecvTimeoutError, ServiceDaemon, ServiceEvent, ServiceInfo};
+use mdns_sd::{IfKind, RecvTimeoutError, ServiceDaemon, ServiceEvent, ServiceInfo};
 use rustls::{ServerConnection, StreamOwned};
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
@@ -57,16 +57,18 @@ impl Discovery {
             ("name", "WiPad Desktop"),
         ];
         let instance_name = format!("WiPadDesktop-{}", &installation_id[..8]);
-        let service = ServiceInfo::new(
+        let host_name = format!("wipad-{}.local.", &installation_id[..8]);
+        let mut service = ServiceInfo::new(
             DESKTOP_SERVICE,
             instance_name.as_str(),
-            "wipad-desktop.local.",
+            host_name.as_str(),
             "",
             SESSION_PORT,
             &properties[..],
         )
         .map_err(|error| error.to_string())?
         .enable_addr_auto();
+        service.set_interfaces(vec![IfKind::IPv4]);
         daemon
             .register(service)
             .map_err(|error| error.to_string())?;
