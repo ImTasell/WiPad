@@ -245,7 +245,7 @@ Do not share implementation code across Kotlin and Rust. Share the protocol spec
 
 ## 11. Implementation milestones
 
-### Milestone 1 — platform skeletons <badge>Complete</badge>
+### Milestone 1 — platform skeletons (complete)
 - Create the Android Compose app and Rust/Slint desktop app.
 - Establish build and test workflows.
 - Add platform capability checks and basic status screens.
