@@ -76,7 +76,9 @@ impl ControllerState {
 
     pub fn decode_payload(payload: &[u8]) -> io::Result<Self> {
         if payload.len() != INPUT_STATE_PAYLOAD_LENGTH || payload[0] != MESSAGE_INPUT_STATE {
-            return Err(invalid("controller snapshot length or message type is invalid"));
+            return Err(invalid(
+                "controller snapshot length or message type is invalid",
+            ));
         }
 
         let state = Self {
