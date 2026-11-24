@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn rejects_empty_frames() {
-        let mut encoded = Cursor::new([0_u8; 4]);
+        let mut encoded = Cursor::new(golden_vector("invalid_frame_empty"));
 
         assert_eq!(
             read_frame(&mut encoded).unwrap_err().kind(),
@@ -166,8 +166,7 @@ mod tests {
 
     #[test]
     fn rejects_frames_larger_than_the_limit_before_allocating() {
-        let length = (MAX_FRAME_LENGTH as u32 + 1).to_be_bytes();
-        let mut encoded = Cursor::new(length);
+        let mut encoded = Cursor::new(golden_vector("invalid_frame_oversized"));
 
         assert_eq!(
             read_frame(&mut encoded).unwrap_err().kind(),
@@ -284,8 +283,7 @@ mod tests {
 
     #[test]
     fn frame_reader_rejects_oversized_header_before_payload_allocation() {
-        let header = (MAX_FRAME_LENGTH as u32 + 1).to_be_bytes();
-        let mut reader = Cursor::new(header);
+        let mut reader = Cursor::new(golden_vector("invalid_frame_oversized"));
         let mut decoder = FrameReader::new();
 
         assert_eq!(
@@ -332,6 +330,20 @@ mod tests {
                 display_name: "Phone".to_owned(),
             }
         );
+    }
+
+    #[test]
+    fn encodes_and_decodes_the_shared_desktop_pairing_hello_vector() {
+        let message = ApplicationMessage::PairingHello {
+            major: 1,
+            minor: 2,
+            role: PeerRole::Desktop,
+            display_name: "Linux".to_owned(),
+        };
+        let vector = golden_vector("pairing_hello_desktop");
+
+        assert_eq!(encode_application_message(&message).unwrap(), vector);
+        assert_eq!(decode_application_message(&vector).unwrap(), message);
     }
 
     #[test]
