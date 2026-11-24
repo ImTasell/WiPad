@@ -155,7 +155,7 @@ mod tests {
     fn button_mapping_covers_the_entire_wire_button_set() {
         let mapped_mask = BUTTON_MAPPING
             .iter()
-            .fold(0_u32, |mask, (bit, _)| mask | bit);
+            .fold(0_u32, |mask, (bit, _)| mask | *bit);
 
         assert_eq!(mapped_mask, crate::controller::BUTTON_MASK);
     }
