@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "desktop/**"
+      - "protocol/**"
       - ".github/workflows/desktop.yml"
   pull_request:
     paths:
