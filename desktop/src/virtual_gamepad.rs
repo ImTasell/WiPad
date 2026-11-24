@@ -1,6 +1,6 @@
 use std::io;
 
-use evdev::uinput::{VirtualDevice, VirtualDeviceBuilder};
+use evdev::uinput::VirtualDevice;
 use evdev::{
     AbsInfo, AbsoluteAxisCode, AttributeSet, EventType, InputEvent, KeyCode, UinputAbsSetup,
 };
