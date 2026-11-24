@@ -162,8 +162,8 @@ mod tests {
         };
         let message = ApplicationMessage::InputState(state);
         let expected = [
-            0x10, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 9, 0,
-            0x12, 0x34, 0xff, 0xfe, 0, 0, 0x80, 0, 0xff, 0xff, 0, 0,
+            0x10, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 9, 0, 0x12, 0x34, 0xff,
+            0xfe, 0, 0, 0x80, 0, 0xff, 0xff, 0, 0,
         ];
 
         assert_eq!(encode_application_message(&message).unwrap(), expected);
