@@ -363,7 +363,9 @@ mod tests {
         );
         heartbeat.receive_pong(1).unwrap();
         assert_eq!(
-            heartbeat.poll(start + Duration::from_millis(1_999)).unwrap(),
+            heartbeat
+                .poll(start + Duration::from_millis(1_999))
+                .unwrap(),
             None
         );
         assert_eq!(
