@@ -177,12 +177,13 @@ mod tests {
             bytes: Vec<u8>,
             offset: usize,
             max_chunk: usize,
+            timeout_after_offset: usize,
             timeouts_remaining: usize,
         }
 
         impl Read for TimeoutReader {
             fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
-                if self.timeouts_remaining > 0 {
+                if self.offset >= self.timeout_after_offset && self.timeouts_remaining > 0 {
                     self.timeouts_remaining -= 1;
                     return Err(io::Error::new(io::ErrorKind::WouldBlock, "try again"));
                 }
@@ -205,6 +206,7 @@ mod tests {
             bytes: ENCODED.to_vec(),
             offset: 0,
             max_chunk: 2,
+            timeout_after_offset: 2,
             timeouts_remaining: 2,
         };
         let mut decoder = FrameReader::new();
@@ -222,6 +224,48 @@ mod tests {
         assert_eq!(decoder.read_next(&mut reader).unwrap().unwrap(), PAYLOAD);
         assert!(!decoder.has_partial_frame());
         assert_eq!(decoder.read_next(&mut reader).unwrap(), None);
+    }
+
+
+    #[test]
+    fn frame_reader_preserves_partial_payload_across_timeouts() {
+        struct TimeoutReader {
+            bytes: Vec<u8>,
+            offset: usize,
+            timed_out: bool,
+        }
+
+        impl Read for TimeoutReader {
+            fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+                if self.offset >= 5 && !self.timed_out {
+                    self.timed_out = true;
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, "try again"));
+                }
+                if self.offset == self.bytes.len() {
+                    return Ok(0);
+                }
+
+                let count = output.len().min(self.bytes.len() - self.offset);
+                output[..count].copy_from_slice(&self.bytes[self.offset..self.offset + count]);
+                self.offset += count;
+                Ok(count)
+            }
+        }
+
+        let mut reader = TimeoutReader {
+            bytes: ENCODED.to_vec(),
+            offset: 0,
+            timed_out: false,
+        };
+        let mut decoder = FrameReader::new();
+
+        assert_eq!(
+            decoder.read_next(&mut reader).unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+        assert!(decoder.has_partial_frame());
+        assert_eq!(decoder.read_next(&mut reader).unwrap().unwrap(), PAYLOAD);
+        assert!(!decoder.has_partial_frame());
     }
 
     #[test]
