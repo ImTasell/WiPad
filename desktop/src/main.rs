@@ -47,8 +47,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app.set_discovery_status(format!("Discovery unavailable · {error}").into());
     }
 
-    // Kept alive for future approval controls; requests time out and fail closed.
-    let _approval_broker = approval_broker;
-    app.run()?;
+    // Requests are bounded and are also rejected immediately when the app exits.
+    let app_result = app.run();
+    approval_broker.cancel_pending();
+    drop(_discovery);
+    app_result?;
     Ok(())
 }
