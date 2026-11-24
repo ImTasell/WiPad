@@ -38,7 +38,7 @@ internal sealed class ApplicationMessage {
  */
 internal object ApplicationMessageCodec {
     const val PROTOCOL_MAJOR = 1
-    const val PROTOCOL_MINOR = 0
+    const val PROTOCOL_MINOR = 1
     const val MAX_DISPLAY_NAME_LENGTH = 64
 
     private const val MESSAGE_PAIRING_HELLO = 0x01
