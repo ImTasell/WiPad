@@ -1,6 +1,8 @@
 package dev.wipad.app
 
 import android.os.Bundle
+import java.net.InetAddress
+import java.util.concurrent.atomic.AtomicBoolean
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +33,9 @@ private val WiPadColors = darkColorScheme(
 class MainActivity : ComponentActivity() {
     private var desktopStatus by mutableStateOf("Starting LAN discovery…")
     private var discovery: LanDiscovery? = null
+    private val sessionConnecting = AtomicBoolean(false)
+    @Volatile private var activityStarted = false
+    @Volatile private var phoneSession: PhoneSession? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,15 +48,67 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        discovery = LanDiscovery(this) { status ->
-            runOnUiThread { desktopStatus = status }
-        }.also { it.start() }
+        activityStarted = true
+        discovery = LanDiscovery(
+            context = this,
+            onStatus = { status ->
+                runOnUiThread { desktopStatus = status }
+            },
+            onDesktopResolved = { address, port, serviceName ->
+                connectToDesktop(address, port, serviceName)
+            },
+        ).also { it.start() }
     }
 
     override fun onStop() {
+        activityStarted = false
         discovery?.close()
         discovery = null
+        phoneSession?.close()
+        phoneSession = null
         super.onStop()
+    }
+
+    private fun connectToDesktop(address: InetAddress, port: Int, serviceName: String) {
+        if (phoneSession != null || !sessionConnecting.compareAndSet(false, true)) return
+
+        Thread({
+            try {
+                val identity = TlsIdentity.loadOrCreate()
+                val pinStore = TlsPeerPinStore(this)
+                val session = TlsPairingClient(identity, pinStore).connect(
+                    address = address,
+                    port = port,
+                    displayName = "WiPad Phone",
+                ) { request ->
+                    runOnUiThread {
+                        desktopStatus = "Pairing needs approval · \${request.peerDisplayName} · \${request.comparisonString}"
+                    }
+                    // The approval surface is not implemented yet. Never auto-approve first contact.
+                    false
+                }
+
+                if (activityStarted) {
+                    phoneSession = session
+                    runOnUiThread {
+                        desktopStatus = "Secure session ready · \${session.peerDisplayName}"
+                    }
+                } else {
+                    session.close()
+                }
+            } catch (error: Exception) {
+                if (activityStarted) {
+                    runOnUiThread {
+                        desktopStatus = "Secure session unavailable · \${error.message ?: error.javaClass.simpleName}"
+                    }
+                }
+            } finally {
+                sessionConnecting.set(false)
+            }
+        }, "wipad-tls-session").apply {
+            isDaemon = true
+            start()
+        }
     }
 }
 
