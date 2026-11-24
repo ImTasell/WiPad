@@ -296,7 +296,7 @@ mod tests {
 
     #[test]
     fn reports_a_truncated_payload() {
-        let mut encoded = Cursor::new([0x00, 0x00, 0x00, 0x03, 0x10, 0x20]);
+        let mut encoded = Cursor::new(golden_vector("invalid_frame_truncated"));
 
         assert_eq!(
             read_frame(&mut encoded).unwrap_err().kind(),
@@ -315,13 +315,13 @@ mod tests {
 
         assert_eq!(
             encode_application_message(&message).unwrap(),
-            [0x01, 0x01, 0x02, 0x01, 0x05, b'P', b'h', b'o', b'n', b'e']
+            golden_vector("pairing_hello_phone")
         );
     }
 
     #[test]
     fn decodes_the_shared_phone_pairing_hello_vector() {
-        let encoded = [0x01, 0x01, 0x02, 0x01, 0x05, b'P', b'h', b'o', b'n', b'e'];
+        let encoded = golden_vector("pairing_hello_phone");
 
         assert_eq!(
             decode_application_message(&encoded).unwrap(),
@@ -351,10 +351,7 @@ mod tests {
             right_trigger: 0,
         };
         let message = ApplicationMessage::InputState(state);
-        let expected = [
-            0x10, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 9, 0, 0x12, 0x34, 0xff,
-            0xfe, 0, 0, 0x80, 0, 0xff, 0xff, 0, 0,
-        ];
+        let expected = golden_vector("input_state_sample");
 
         assert_eq!(encode_application_message(&message).unwrap(), expected);
         assert_eq!(decode_application_message(&expected).unwrap(), message);
@@ -410,8 +407,8 @@ mod tests {
         let nonce = 0x0102_0304_0506_0708;
         let ping = ApplicationMessage::Ping { nonce };
         let pong = ApplicationMessage::Pong { nonce };
-        let ping_vector = [0x12, 1, 2, 3, 4, 5, 6, 7, 8];
-        let pong_vector = [0x13, 1, 2, 3, 4, 5, 6, 7, 8];
+        let ping_vector = golden_vector("ping_nonce_0102030405060708");
+        let pong_vector = golden_vector("pong_nonce_0102030405060708");
         assert_eq!(encode_application_message(&ping).unwrap(), ping_vector);
         assert_eq!(decode_application_message(&ping_vector).unwrap(), ping);
         assert_eq!(encode_application_message(&pong).unwrap(), pong_vector);
@@ -434,8 +431,12 @@ mod tests {
 
     #[test]
     fn encodes_and_decodes_controller_presence_status() {
-        for (connected, expected) in [(false, [0x11, 0]), (true, [0x11, 1])] {
+        for (connected, vector_name) in [
+            (false, "controller_status_disconnected"),
+            (true, "controller_status_connected"),
+        ] {
             let message = ApplicationMessage::ControllerStatus { connected };
+            let expected = golden_vector(vector_name);
             assert_eq!(encode_application_message(&message).unwrap(), expected);
             assert_eq!(decode_application_message(&expected).unwrap(), message);
         }
@@ -455,19 +456,40 @@ mod tests {
     fn encodes_and_decodes_pairing_decisions_and_session_ready() {
         for approved in [false, true] {
             let message = ApplicationMessage::PairingDecision { approved };
-            let expected = [MESSAGE_PAIRING_DECISION, u8::from(approved)];
+            let expected = golden_vector(if approved {
+                "pairing_decision_approved"
+            } else {
+                "pairing_decision_rejected"
+            });
             assert_eq!(encode_application_message(&message).unwrap(), expected);
             assert_eq!(decode_application_message(&expected).unwrap(), message);
         }
 
         assert_eq!(
             encode_application_message(&ApplicationMessage::SessionReady).unwrap(),
-            [MESSAGE_SESSION_READY]
+            golden_vector("session_ready")
         );
         assert_eq!(
-            decode_application_message(&[MESSAGE_SESSION_READY]).unwrap(),
+            decode_application_message(&golden_vector("session_ready")).unwrap(),
             ApplicationMessage::SessionReady
         );
+    }
+
+    #[test]
+    fn decodes_shared_malformed_application_vectors() {
+        for name in [
+            "invalid_unknown_message",
+            "invalid_pairing_hello_major",
+            "invalid_pairing_hello_role",
+            "invalid_pairing_hello_utf8",
+            "invalid_pairing_decision_boolean",
+            "invalid_controller_status_boolean",
+            "invalid_ping_truncated",
+            "invalid_pong_extra_byte",
+            "invalid_input_state_hat",
+        ] {
+            assert!(decode_application_message(&golden_vector(name)).is_err());
+        }
     }
 
     #[test]
