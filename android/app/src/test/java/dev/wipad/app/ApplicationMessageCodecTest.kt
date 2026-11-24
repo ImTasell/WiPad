@@ -17,7 +17,7 @@ class ApplicationMessageCodecTest {
     fun encodesTheSharedPhonePairingHelloVector() {
         val message = ApplicationMessage.PairingHello(
             major = 1,
-            minor = 0,
+            minor = 1,
             role = PeerRole.PHONE,
             displayName = "Phone",
         )
@@ -28,7 +28,7 @@ class ApplicationMessageCodecTest {
     @Test
     fun decodesTheSharedPhonePairingHelloVector() {
         assertEquals(
-            ApplicationMessage.PairingHello(1, 0, PeerRole.PHONE, "Phone"),
+            ApplicationMessage.PairingHello(1, 1, PeerRole.PHONE, "Phone"),
             ApplicationMessageCodec.decode(helloVector),
         )
     }
