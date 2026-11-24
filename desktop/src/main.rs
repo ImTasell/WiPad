@@ -1,4 +1,5 @@
 pub mod protocol;
+pub mod secure_session;
 pub mod security;
 
 mod discovery;
