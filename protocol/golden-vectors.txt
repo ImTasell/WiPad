@@ -5,6 +5,7 @@
 
 pairing_hello_phone=010102010550686f6e65
 pairing_hello_desktop=01010202054c696e7578
+pairing_hello_phone_unicode=010102010a50686f6e6520f09f93b1
 pairing_decision_rejected=0200
 pairing_decision_approved=0201
 session_ready=03
@@ -19,6 +20,7 @@ invalid_unknown_message=7f
 invalid_pairing_hello_major=010200010550686f6e65
 invalid_pairing_hello_role=010102090550686f6e65
 invalid_pairing_hello_utf8=0101020101ff
+invalid_pairing_hello_control=010102010d57695061640a4465736b746f70
 invalid_pairing_decision_boolean=0202
 invalid_controller_status_boolean=1102
 invalid_ping_truncated=1201020304050607
