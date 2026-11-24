@@ -91,13 +91,14 @@ internal class TlsPairingClient(
         address: InetAddress,
         port: Int,
         displayName: String,
+        onSocketCreated: (SSLSocket) -> Unit = {},
         approveLocal: (PairingPrompt) -> Boolean,
     ): PhoneSession {
         val storedPin = pinStore.loadDesktopFingerprint()
         var socket: SSLSocket? = null
 
         try {
-            socket = identity.connect(address, port, storedPin)
+            socket = identity.connect(address, port, storedPin, onSocketCreated = onSocketCreated)
             socket.soTimeout = SESSION_READ_TIMEOUT_MILLIS
 
             val peerCertificate = socket.session.peerCertificates
