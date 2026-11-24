@@ -19,4 +19,4 @@ Shared conformance vector:
 - Payload: 10 20 30
 - Encoded frame: 00 00 00 03 10 20 30
 
-The Rust and Kotlin unit tests both assert this exact vector, as well as empty, oversized, and truncated-frame rejection.
+The Rust and Kotlin unit tests load this vector and the shared malformed-frame fixtures from [protocol/golden-vectors.txt](../protocol/golden-vectors.txt). Keep the canonical bytes in that file rather than duplicating them in platform tests.
