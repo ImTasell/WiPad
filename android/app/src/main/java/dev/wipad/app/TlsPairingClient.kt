@@ -160,13 +160,13 @@ internal class TlsPairingClient(
                 throw IOException("Desktop rejected WiPad pairing")
             }
 
-            // Persist only after both approvals. A TLS handshake alone is not pairing.
-            if (!reconnecting) pinStore.approveDesktop(peerCertificate)
-
             writeMessage(socket, ApplicationMessage.SessionReady)
             if (readMessage(socket) != ApplicationMessage.SessionReady) {
                 throw IOException("Desktop did not confirm SESSION_READY")
             }
+
+            // Persist only after both approvals and both SESSION_READY messages.
+            if (!reconnecting) pinStore.approveDesktop(peerCertificate)
 
             return PhoneSession(
                 socket = socket,
