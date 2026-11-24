@@ -232,6 +232,7 @@ mod tests {
         struct TimeoutReader {
             bytes: Vec<u8>,
             offset: usize,
+            max_chunk: usize,
             timed_out: bool,
         }
 
@@ -245,7 +246,10 @@ mod tests {
                     return Ok(0);
                 }
 
-                let count = output.len().min(self.bytes.len() - self.offset);
+                let count = output
+                    .len()
+                    .min(self.max_chunk)
+                    .min(self.bytes.len() - self.offset);
                 output[..count].copy_from_slice(&self.bytes[self.offset..self.offset + count]);
                 self.offset += count;
                 Ok(count)
@@ -255,6 +259,7 @@ mod tests {
         let mut reader = TimeoutReader {
             bytes: ENCODED.to_vec(),
             offset: 0,
+            max_chunk: 1,
             timed_out: false,
         };
         let mut decoder = FrameReader::new();
