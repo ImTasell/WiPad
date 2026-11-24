@@ -351,6 +351,37 @@ mod tests {
     }
 
     #[test]
+    fn heartbeat_tracker_sends_one_probe_at_a_time_and_times_out() {
+        use std::time::{Duration, Instant};
+
+        let start = Instant::now();
+        let mut heartbeat = HeartbeatTracker::default();
+        assert_eq!(heartbeat.poll(start).unwrap(), Some(1));
+        assert_eq!(heartbeat.poll(start + Duration::from_secs(2)).unwrap(), None);
+        heartbeat.receive_pong(1).unwrap();
+        assert_eq!(heartbeat.poll(start + Duration::from_millis(1_999)).unwrap(), None);
+        assert_eq!(heartbeat.poll(start + Duration::from_secs(2)).unwrap(), Some(2));
+        assert_eq!(
+            heartbeat.poll(start + Duration::from_secs(9)).unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+    }
+
+    #[test]
+    fn heartbeat_tracker_rejects_wrong_or_unsolicited_pongs() {
+        let mut heartbeat = HeartbeatTracker::default();
+        assert_eq!(
+            heartbeat.receive_pong(1).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        heartbeat.poll(std::time::Instant::now()).unwrap();
+        assert_eq!(
+            heartbeat.receive_pong(2).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
     fn encodes_and_decodes_heartbeat_nonces() {
         let nonce = 0x0102_0304_0506_0708;
         let ping = ApplicationMessage::Ping { nonce };
@@ -451,6 +482,68 @@ mod tests {
 pub const PROTOCOL_MAJOR: u8 = 1;
 pub const PROTOCOL_MINOR: u8 = 2;
 pub const MAX_DISPLAY_NAME_LENGTH: usize = 64;
+
+const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+const HEARTBEAT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(7);
+
+/// Tracks one outstanding nonce-based liveness probe at a time.
+#[derive(Debug)]
+pub struct HeartbeatTracker {
+    next_nonce: u64,
+    last_sent: Option<std::time::Instant>,
+    pending: Option<(u64, std::time::Instant)>,
+}
+
+impl Default for HeartbeatTracker {
+    fn default() -> Self {
+        Self {
+            next_nonce: 1,
+            last_sent: None,
+            pending: None,
+        }
+    }
+}
+
+impl HeartbeatTracker {
+    /// Returns a nonce to send when a probe is due, or a timeout error when
+    /// the previous probe was not answered in time.
+    pub fn poll(&mut self, now: std::time::Instant) -> io::Result<Option<u64>> {
+        if let Some((_, sent_at)) = self.pending {
+            if now.saturating_duration_since(sent_at) >= HEARTBEAT_TIMEOUT {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "WiPad heartbeat timed out",
+                ));
+            }
+            return Ok(None);
+        }
+
+        if self.last_sent.is_some_and(|last| {
+            now.saturating_duration_since(last) < HEARTBEAT_INTERVAL
+        }) {
+            return Ok(None);
+        }
+
+        let nonce = self.next_nonce;
+        self.next_nonce = self.next_nonce.wrapping_add(1).max(1);
+        self.last_sent = Some(now);
+        self.pending = Some((nonce, now));
+        Ok(Some(nonce))
+    }
+
+    pub fn receive_pong(&mut self, nonce: u64) -> io::Result<()> {
+        match self.pending {
+            Some((expected, _)) if expected == nonce => {
+                self.pending = None;
+                Ok(())
+            }
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "received an unexpected WiPad heartbeat response",
+            )),
+        }
+    }
+}
 
 const MESSAGE_PAIRING_HELLO: u8 = 0x01;
 const MESSAGE_PAIRING_DECISION: u8 = 0x02;
