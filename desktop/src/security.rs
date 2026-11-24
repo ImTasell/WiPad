@@ -346,6 +346,13 @@ pub struct TrustStore {
     path: PathBuf,
 }
 
+/// Revokes the desktop's remembered phone identity.
+///
+/// A future connection is treated as first contact and must be explicitly approved.
+pub fn revoke_trusted_peer() -> io::Result<()> {
+    TrustStore::new(TrustStore::default_path()?).revoke()
+}
+
 impl TrustStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
