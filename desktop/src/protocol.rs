@@ -122,7 +122,17 @@ mod tests {
 
     // Shared wire vector: payload 10 20 30 -> 00 00 00 03 10 20 30.
     const PAYLOAD: [u8; 3] = [0x10, 0x20, 0x30];
-    const ENCODED: [u8; 7] = [0x00, 0x00, 0x00, 0x03, 0x10, 0x20, 0x30];
+    const GOLDEN_VECTORS: &str = include_str!("../../protocol/golden-vectors.txt");
+
+    fn golden_vector(name: &str) -> Vec<u8> {
+        let hex = GOLDEN_VECTORS.lines()
+            .filter_map(|line| line.split_once('='))
+            .find_map(|(key, value)| (key == name).then_some(value.trim()))
+            .unwrap_or_else(|| panic!("missing golden vector: {name}"));
+        hex.as_bytes().chunks_exact(2).map(|pair| {
+            u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap()
+        }).collect()
+    }
 
     #[test]
     fn writes_the_shared_big_endian_vector() {
@@ -130,12 +140,12 @@ mod tests {
 
         write_frame(&mut encoded, &PAYLOAD).unwrap();
 
-        assert_eq!(encoded, ENCODED);
+        assert_eq!(encoded, golden_vector("frame_sample"));
     }
 
     #[test]
     fn reads_the_shared_big_endian_vector() {
-        let mut encoded = Cursor::new(ENCODED);
+        let mut encoded = Cursor::new(golden_vector("frame_sample"));
 
         assert_eq!(read_frame(&mut encoded).unwrap(), PAYLOAD);
     }
@@ -203,7 +213,7 @@ mod tests {
         }
 
         let mut reader = TimeoutReader {
-            bytes: ENCODED.to_vec(),
+            bytes: golden_vector("frame_sample"),
             offset: 0,
             max_chunk: 2,
             timeout_after_offset: 2,
@@ -256,7 +266,7 @@ mod tests {
         }
 
         let mut reader = TimeoutReader {
-            bytes: ENCODED.to_vec(),
+            bytes: golden_vector("frame_sample"),
             offset: 0,
             max_chunk: 1,
             timed_out: false,
