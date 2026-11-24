@@ -42,7 +42,7 @@ The protocol has a major and minor version.
 - Implementations may ignore unknown optional capabilities and optional message types.
 - Required fields must never be silently ignored.
 
-The initial protocol family is major version `1`. The controller-presence message is introduced in minor version `1`; implementations must reject peers advertising a lower minor version because they cannot safely process this session behavior. The discovery record advertises supported major versions before a session is attempted.
+The initial protocol family is major version `1`. Controller presence is introduced in minor version `1`; nonce-based session heartbeats are introduced in minor version `2`. Implementations must reject peers advertising a lower minor version than the minimum required for their session behavior. The discovery record advertises supported major versions before a session is attempted.
 
 ## 4. Automatic LAN discovery
 
@@ -162,6 +162,8 @@ The protocol defines logical messages independently of the eventual transport. T
 | `SESSION_READY` | Both | Confirm both peers approved and the session may accept input |
 | `INPUT_STATE` | Phone → Desktop | Send a complete controller-state snapshot |
 | `CONTROLLER_STATUS` | Phone → Desktop | Report whether a physical controller is connected |
+| `PING` | Desktop → Phone | Verify the phone session is responsive; carries an 8-byte nonce |
+| `PONG` | Phone → Desktop | Echo the exact 8-byte heartbeat nonce |
 | `CONTROLLER_STATUS` | Phone → Desktop | Report whether a physical controller is connected |
 | `PING` | Both | Liveness probe |
 | `PONG` | Both | Liveness response |
@@ -189,7 +191,8 @@ The application payload begins with a one-byte message type. Message payload def
 - `PAIRING_DECISION`: one byte, `0` reject or `1` approve. Each side sends at most one decision per connection.
 - `SESSION_READY`: empty payload. Each peer sends it only after its local and remote approval flags are both true.
 - `CONTROLLER_STATUS`: one byte after the type (`0` disconnected, `1` connected). The phone sends this immediately after session readiness and whenever physical controller presence changes. On `0`, the desktop releases all virtual controls immediately and ignores subsequent input snapshots until a `1` status arrives.
-- `INPUT_STATE`, `PING`, `PONG`, `GOODBYE`, and `ERROR`: their message-specific payloads are defined by the protocol sections below.
+- `PING` and `PONG`: one message-type byte followed by an unsigned 64-bit big-endian nonce. The desktop sends a PING every two seconds while the session is active; the phone must return a PONG with the same nonce. The desktop closes the session if a PONG is not received within seven seconds. The phone also closes the session if no complete PING arrives within seven seconds.
+- `INPUT_STATE`, `GOODBYE`, and `ERROR`: their message-specific payloads are defined by the protocol sections below.
 
 The Rust and Kotlin implementations share the same frame conformance vector and malformed-frame tests. See [docs/TCP_FRAMING.md](docs/TCP_FRAMING.md).
 
