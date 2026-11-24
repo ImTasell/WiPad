@@ -1,5 +1,7 @@
 package dev.wipad.app
 
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -7,6 +9,30 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ApplicationMessageCodecTest {
+    @Test
+    fun controllerInputRoundTripsThroughFrameAndApplicationCodecs() {
+        val state = ControllerState(
+            sequence = 1,
+            sampleTimeMicros = 2,
+            buttons = ControllerState.BUTTON_SOUTH or ControllerState.BUTTON_NORTH,
+            hat = 0,
+            leftX = 0x1234,
+            leftY = -2,
+            rightX = 0,
+            rightY = Short.MIN_VALUE.toInt(),
+            leftTrigger = ControllerState.TRIGGER_MAX,
+            rightTrigger = 0,
+        )
+        val message = ApplicationMessage.InputState(state)
+        val wire = ByteArrayOutputStream()
+
+        FrameCodec.writeFrame(wire, ApplicationMessageCodec.encode(message))
+
+        val payload = FrameCodec.readFrame(ByteArrayInputStream(wire.toByteArray()))
+        assertArrayEquals(GoldenVectors.bytes("input_state_sample"), payload)
+        assertEquals(message, ApplicationMessageCodec.decode(payload))
+    }
+
     @Test
     fun encodesAndDecodesBothPeerRolesAgainstSharedVectors() {
         val cases = listOf(
