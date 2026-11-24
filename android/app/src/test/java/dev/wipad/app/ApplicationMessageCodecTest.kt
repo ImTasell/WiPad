@@ -54,6 +54,27 @@ class ApplicationMessageCodecTest {
     }
 
     @Test
+    fun encodesAndDecodesControllerPresenceStatus() {
+        for ((connected, expected) in listOf(
+            false to byteArrayOf(0x11, 0),
+            true to byteArrayOf(0x11, 1),
+        )) {
+            val message = ApplicationMessage.ControllerStatus(connected)
+            assertArrayEquals(expected, ApplicationMessageCodec.encode(message))
+            assertEquals(message, ApplicationMessageCodec.decode(expected))
+        }
+    }
+
+    @Test
+    fun rejectsMalformedControllerPresenceStatus() {
+        listOf(
+            byteArrayOf(0x11),
+            byteArrayOf(0x11, 2),
+            byteArrayOf(0x11, 1, 0),
+        ).forEach(::assertDecodeRejected)
+    }
+
+    @Test
     fun rejectsMalformedPairingMessages() {
         val invalidMessages = listOf(
             byteArrayOf(0x01),
