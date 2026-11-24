@@ -140,14 +140,14 @@ impl Discovery {
                                 continue;
                             }
                             let name = service
-                                    .get_property_val_str("name")
-                                    .unwrap_or("WiPad Phone");
-                                let address = service
-                                    .get_addresses_v4()
-                                    .iter()
-                                    .next()
-                                    .map(ToString::to_string)
-                                    .unwrap_or_else(|| "address unavailable".to_owned());
+                                .get_property_val_str("name")
+                                .unwrap_or("WiPad Phone");
+                            let address = service
+                                .get_addresses_v4()
+                                .iter()
+                                .next()
+                                .map(ToString::to_string)
+                                .unwrap_or_else(|| "address unavailable".to_owned());
                             callback(format!("Phone found · {name} · {address}"));
                         }
                         Ok(ServiceEvent::ServiceRemoved(service_type, full_name))
