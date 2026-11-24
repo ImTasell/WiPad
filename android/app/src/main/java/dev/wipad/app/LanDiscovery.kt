@@ -61,7 +61,7 @@ class LanDiscovery(
             }
 
             val phone = NsdServiceInfo().apply {
-                serviceName = "WiPad Phone"
+                serviceName = "WiPadPhone-${installationId.take(8)}"
                 serviceType = PHONE_SERVICE
                 port = listener.localPort
                 setAttribute("pv", PROTOCOL_MAJOR)
