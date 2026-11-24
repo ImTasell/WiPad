@@ -161,6 +161,7 @@ The protocol defines logical messages independently of the eventual transport. T
 | `PAIRING_DECISION` | Both | Approve or reject the peer identity after comparing the displayed string |
 | `SESSION_READY` | Both | Confirm both peers approved and the session may accept input |
 | `INPUT_STATE` | Phone → Desktop | Send a complete controller-state snapshot |
+| `CONTROLLER_STATUS` | Phone → Desktop | Report whether a physical controller is connected |
 | `PING` | Both | Liveness probe |
 | `PONG` | Both | Liveness response |
 | `CONTROLLER_STATUS` | Phone → Desktop | Report controller connected/disconnected state |
