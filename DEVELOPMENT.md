@@ -36,19 +36,19 @@ WiPad/
 └── LICENSE
 ```
 
-The Android project should include the Gradle wrapper and a Gradle version catalog. The desktop project should commit its `Cargo.lock` for reproducible application builds.
+The Android build currently uses Gradle 9.6.0, Android Gradle Plugin 9.5.0, Kotlin 2.4.10, JDK 17, and Compose BOM 2026.09.00. The desktop uses Rust 1.95+ and Slint 1.19.0. These are initial pinned versions and should be upgraded deliberately. A Gradle wrapper has not been checked in yet; CI installs the pinned Gradle version directly. The desktop `Cargo.lock` should be generated and committed once the first dependency resolution succeeds.
 
 ## 3. Android development
 
 ### Requirements
 
-- JDK version required by the selected Android Gradle Plugin (pin this in the project setup).
+- JDK 17.
 - Android SDK Platform for the configured compile SDK.
 - Android SDK Build-Tools and platform tools.
-- Android Gradle Plugin and Gradle wrapper versions pinned by the project.
+- Android Gradle Plugin 9.5.0 and Gradle 9.6.0.
 - An Android 11+ device or emulator for testing.
 
-The minimum supported Android version is API 30. The target SDK should be kept current with Android distribution requirements and selected deliberately during project setup; it is not the same thing as the minimum SDK.
+The minimum supported Android version is API 30; the current target and compile SDK are both API 36. The app explicitly filters to `armeabi-v7a` for the initial 32-bit ARM target.
 
 ### Build and test
 
@@ -145,7 +145,7 @@ GitHub Actions should validate both platform projects independently, then run sh
 
 - Use a supported Ubuntu runner for the initial Linux build.
 - Install only the system packages required by the selected Slint backend.
-- Install the pinned Rust toolchain.
+- Install the current stable Rust toolchain (1.95+).
 - Cache Cargo registry, Git dependencies, and build artifacts.
 - Run formatting, check, tests, Clippy, and release build.
 - Keep hardware-dependent `uinput` tests separate from ordinary CI unless the runner can provide a safe test environment.
