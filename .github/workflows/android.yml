@@ -27,8 +27,21 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK components
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.6.0"
-      - name: Assemble debug APK
-        run: gradle --no-daemon :android:app:assembleDebug
+      - name: Run Android checks
+        run: |
+          gradle --no-daemon \
+            :android:app:testDebugUnitTest \
+            :android:app:lintDebug \
+            :android:app:assembleDebug
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: wipad-android-debug
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
