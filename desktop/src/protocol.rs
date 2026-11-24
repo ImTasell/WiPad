@@ -20,6 +20,70 @@ pub fn read_frame<R: Read>(reader: &mut R) -> io::Result<Vec<u8>> {
     Ok(payload)
 }
 
+/// Incremental frame decoder that preserves partial headers and payloads across timeouts.
+///
+/// Only bytes required for the current frame are read, keeping buffered memory bounded.
+#[derive(Default)]
+pub struct FrameReader {
+    buffer: Vec<u8>,
+    expected_payload_length: Option<usize>,
+}
+
+impl FrameReader {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns None only for a clean EOF between frames.
+    ///
+    /// TimedOut and WouldBlock errors leave the partial frame intact for the
+    /// next call, which is essential when a session loop uses a short read timeout.
+    pub fn read_next<R: Read>(&mut self, reader: &mut R) -> io::Result<Option<Vec<u8>>> {
+        loop {
+            if let Some(expected_length) = self.expected_payload_length {
+                if self.buffer.len() == expected_length {
+                    let payload = std::mem::take(&mut self.buffer);
+                    self.expected_payload_length = None;
+                    self.buffer = Vec::with_capacity(MAX_FRAME_LENGTH);
+                    return Ok(Some(payload));
+                }
+            } else if self.buffer.len() == 4 {
+                let length = u32::from_be_bytes(
+                    self.buffer.as_slice().try_into().expect("four-byte frame header"),
+                ) as usize;
+                self.buffer.clear();
+                validate_length(length, io::ErrorKind::InvalidData)?;
+                self.expected_payload_length = Some(length);
+                continue;
+            }
+
+            let remaining = match self.expected_payload_length {
+                Some(length) => length - self.buffer.len(),
+                None => 4 - self.buffer.len(),
+            };
+            let mut chunk = [0_u8; MAX_FRAME_LENGTH];
+            match reader.read(&mut chunk[..remaining]) {
+                Ok(0) if self.buffer.is_empty() && self.expected_payload_length.is_none() => {
+                    return Ok(None);
+                }
+                Ok(0) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "WiPad frame ended before its declared length",
+                    ));
+                }
+                Ok(read) => self.buffer.extend_from_slice(&chunk[..read]),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    pub fn has_partial_frame(&self) -> bool {
+        !self.buffer.is_empty() || self.expected_payload_length.is_some()
+    }
+}
+
 /// Writes one length-prefixed frame to a byte stream.
 ///
 /// The caller owns flushing and closing the stream.
@@ -101,6 +165,72 @@ mod tests {
         assert_eq!(
             write_frame(&mut Vec::new(), &payload).unwrap_err().kind(),
             io::ErrorKind::InvalidInput
+        );
+    }
+
+    #[test]
+    fn frame_reader_preserves_partial_data_across_timeouts() {
+        struct TimeoutReader {
+            bytes: Vec<u8>,
+            offset: usize,
+            max_chunk: usize,
+            timeouts_remaining: usize,
+        }
+
+        impl Read for TimeoutReader {
+            fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+                if self.timeouts_remaining > 0 {
+                    self.timeouts_remaining -= 1;
+                    return Err(io::Error::new(io::ErrorKind::WouldBlock, "try again"));
+                }
+
+                if self.offset == self.bytes.len() {
+                    return Ok(0);
+                }
+
+                let count = output
+                    .len()
+                    .min(self.max_chunk)
+                    .min(self.bytes.len() - self.offset);
+                output[..count]
+                    .copy_from_slice(&self.bytes[self.offset..self.offset + count]);
+                self.offset += count;
+                Ok(count)
+            }
+        }
+
+        let mut reader = TimeoutReader {
+            bytes: ENCODED.to_vec(),
+            offset: 0,
+            max_chunk: 2,
+            timeouts_remaining: 2,
+        };
+        let mut decoder = FrameReader::new();
+
+        assert_eq!(
+            decoder.read_next(&mut reader).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert!(decoder.has_partial_frame());
+        assert_eq!(
+            decoder.read_next(&mut reader).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert!(decoder.has_partial_frame());
+        assert_eq!(decoder.read_next(&mut reader).unwrap().unwrap(), PAYLOAD);
+        assert!(!decoder.has_partial_frame());
+        assert_eq!(decoder.read_next(&mut reader).unwrap(), None);
+    }
+
+    #[test]
+    fn frame_reader_rejects_oversized_header_before_payload_allocation() {
+        let header = (MAX_FRAME_LENGTH as u32 + 1).to_be_bytes();
+        let mut reader = Cursor::new(header);
+        let mut decoder = FrameReader::new();
+
+        assert_eq!(
+            decoder.read_next(&mut reader).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
         );
     }
 
