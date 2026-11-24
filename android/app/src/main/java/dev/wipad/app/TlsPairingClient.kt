@@ -114,7 +114,7 @@ internal class TlsPairingClient(
             if (storedPin != null
                 && !TlsFingerprint.matchesFingerprint(storedPin, peerFingerprint)
             ) {
-                throw IOException("Desktop certificate changed; pairing approval is required")
+                throw IOException("Desktop identity changed; pairing approval is required")
             }
 
             writeMessage(
