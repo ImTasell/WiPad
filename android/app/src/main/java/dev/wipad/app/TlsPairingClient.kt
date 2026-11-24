@@ -99,7 +99,7 @@ internal class TlsPairingClient(
 
         try {
             socket = identity.connect(address, port, storedPin, onSocketCreated = onSocketCreated)
-            socket.soTimeout = SESSION_READ_TIMEOUT_MILLIS
+            socket.soTimeout = PAIRING_READ_TIMEOUT_MILLIS
 
             val peerCertificate = socket.session.peerCertificates
                 .firstOrNull() as? X509Certificate
@@ -189,6 +189,6 @@ internal class TlsPairingClient(
         ApplicationMessageCodec.decode(FrameCodec.readFrame(socket.inputStream))
 
     companion object {
-        private const val SESSION_READ_TIMEOUT_MILLIS = 30_000
+        private const val PAIRING_READ_TIMEOUT_MILLIS = 120_000
     }
 }
