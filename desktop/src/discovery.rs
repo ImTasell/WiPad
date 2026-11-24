@@ -194,7 +194,7 @@ where
     FApprove: Fn(&PairingRequest) -> bool,
 {
     socket.set_nodelay(true)?;
-    socket.set_read_timeout(Some(Duration::from_secs(120)))?;
+    socket.set_read_timeout(Some(Duration::from_secs(10)))?;
     socket.set_write_timeout(Some(Duration::from_secs(10)))?;
 
     // Reload the pin for every connection. A first pairing writes the pin only
@@ -211,6 +211,9 @@ where
     while tls.conn.is_handshaking() {
         tls.conn.complete_io(&mut tls.sock)?;
     }
+
+    // Pairing can wait for a deliberate user decision, but TLS handshakes stay short.
+    tls.sock.set_read_timeout(Some(Duration::from_secs(120)))?;
 
     let peer_certificate = tls
         .conn
