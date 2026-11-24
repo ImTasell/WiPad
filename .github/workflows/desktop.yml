@@ -22,6 +22,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Slint Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libfontconfig1-dev libfreetype6-dev libxkbcommon-dev \
+            libwayland-dev libx11-dev libxcb1-dev libxcb-render0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -33,10 +40,10 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Run tests
         working-directory: desktop
-        run: cargo test --locked
+        run: cargo test
       - name: Run Clippy
         working-directory: desktop
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
       - name: Build
         working-directory: desktop
-        run: cargo build --locked
+        run: cargo build
