@@ -379,7 +379,6 @@ mod tests {
     use super::*;
     use uuid::Uuid;
 
-
     fn perform_xx_handshake() -> (EstablishedSession, EstablishedSession) {
         let phone_identity = NoiseIdentity::generate().unwrap();
         let desktop_identity = NoiseIdentity::generate().unwrap();
