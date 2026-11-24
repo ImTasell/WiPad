@@ -2,8 +2,9 @@ use rcgen::{CertificateParams, KeyPair, PKCS_ECDSA_P256_SHA256};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
 use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
+use rustls::crypto::CryptoProvider;
 use rustls::{
-    ClientConfig, ClientConnection, CryptoProvider, DigitallySignedStruct, DistinguishedName,
+    ClientConfig, ClientConnection, DigitallySignedStruct, DistinguishedName,
     Error as TlsError, ProtocolVersion, ServerConfig, ServerConnection, SignatureScheme,
 };
 use rustls::{crypto, version};
