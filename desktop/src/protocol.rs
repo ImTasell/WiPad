@@ -351,6 +351,25 @@ mod tests {
     }
 
     #[test]
+    fn encodes_and_decodes_controller_presence_status() {
+        for (connected, expected) in [(false, [0x11, 0]), (true, [0x11, 1])] {
+            let message = ApplicationMessage::ControllerStatus { connected };
+            assert_eq!(encode_application_message(&message).unwrap(), expected);
+            assert_eq!(decode_application_message(&expected).unwrap(), message);
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_controller_presence_status() {
+        for malformed in [&[0x11][..], &[0x11, 2][..], &[0x11, 1, 0][..]] {
+            assert_eq!(
+                decode_application_message(malformed).unwrap_err().kind(),
+                io::ErrorKind::InvalidData
+            );
+        }
+    }
+
+    #[test]
     fn encodes_and_decodes_pairing_decisions_and_session_ready() {
         for approved in [false, true] {
             let message = ApplicationMessage::PairingDecision { approved };
@@ -414,6 +433,7 @@ const MESSAGE_PAIRING_HELLO: u8 = 0x01;
 const MESSAGE_PAIRING_DECISION: u8 = 0x02;
 const MESSAGE_SESSION_READY: u8 = 0x03;
 const MESSAGE_INPUT_STATE: u8 = crate::controller::MESSAGE_INPUT_STATE;
+const MESSAGE_CONTROLLER_STATUS: u8 = 0x11;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PeerRole {
@@ -454,6 +474,7 @@ pub enum ApplicationMessage {
     },
     SessionReady,
     InputState(ControllerState),
+    ControllerStatus { connected: bool },
 }
 
 pub fn encode_application_message(message: &ApplicationMessage) -> io::Result<Vec<u8>> {
@@ -487,6 +508,10 @@ pub fn encode_application_message(message: &ApplicationMessage) -> io::Result<Ve
             payload.extend_from_slice(name);
         }
         ApplicationMessage::InputState(state) => return state.encode_payload(),
+        ApplicationMessage::ControllerStatus { connected } => {
+            payload.push(MESSAGE_CONTROLLER_STATUS);
+            payload.push(u8::from(*connected));
+        }
         ApplicationMessage::PairingDecision { approved } => {
             payload.push(MESSAGE_PAIRING_DECISION);
             payload.push(u8::from(*approved));
@@ -566,6 +591,17 @@ pub fn decode_application_message(payload: &[u8]) -> io::Result<ApplicationMessa
         MESSAGE_INPUT_STATE => Ok(ApplicationMessage::InputState(
             ControllerState::decode_payload(payload)?,
         )),
+        MESSAGE_CONTROLLER_STATUS => {
+            if payload.len() != 2 || payload[1] > 1 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "WiPad controller status is malformed",
+                ));
+            }
+            Ok(ApplicationMessage::ControllerStatus {
+                connected: payload[1] == 1,
+            })
+        }
         MESSAGE_PAIRING_DECISION => {
             if payload.len() != 2 || payload[1] > 1 {
                 return Err(io::Error::new(
