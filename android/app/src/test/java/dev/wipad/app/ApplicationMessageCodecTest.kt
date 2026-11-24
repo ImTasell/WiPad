@@ -7,127 +7,97 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ApplicationMessageCodecTest {
-    private val helloVector = byteArrayOf(
-        0x01, 0x01, 0x02, 0x01, 0x05,
-        'P'.code.toByte(), 'h'.code.toByte(), 'o'.code.toByte(),
-        'n'.code.toByte(), 'e'.code.toByte(),
-    )
-
     @Test
-    fun encodesTheSharedPhonePairingHelloVector() {
-        val message = ApplicationMessage.PairingHello(
-            major = 1,
-            minor = 2,
-            role = PeerRole.PHONE,
-            displayName = "Phone",
+    fun encodesAndDecodesBothPeerRolesAgainstSharedVectors() {
+        val cases = listOf(
+            ApplicationMessage.PairingHello(1, 2, PeerRole.PHONE, "Phone") to "pairing_hello_phone",
+            ApplicationMessage.PairingHello(1, 2, PeerRole.DESKTOP, "Linux") to "pairing_hello_desktop",
         )
 
-        assertArrayEquals(helloVector, ApplicationMessageCodec.encode(message))
+        cases.forEach { (message, vectorName) ->
+            val vector = GoldenVectors.bytes(vectorName)
+            assertArrayEquals(vector, ApplicationMessageCodec.encode(message))
+            assertEquals(message, ApplicationMessageCodec.decode(vector))
+        }
     }
 
     @Test
-    fun decodesTheSharedPhonePairingHelloVector() {
-        assertEquals(
-            ApplicationMessage.PairingHello(1, 2, PeerRole.PHONE, "Phone"),
-            ApplicationMessageCodec.decode(helloVector),
+    fun encodesAndDecodesBothPairingDecisionsAndSessionReady() {
+        val cases = listOf(
+            ApplicationMessage.PairingDecision(false) to "pairing_decision_rejected",
+            ApplicationMessage.PairingDecision(true) to "pairing_decision_approved",
         )
-    }
 
-    @Test
-    fun encodesAndDecodesPairingDecisionsAndReady() {
-        for (approved in listOf(false, true)) {
-            val message = ApplicationMessage.PairingDecision(approved)
-            val vector = byteArrayOf(0x02, if (approved) 1 else 0)
-
+        cases.forEach { (message, vectorName) ->
+            val vector = GoldenVectors.bytes(vectorName)
             assertArrayEquals(vector, ApplicationMessageCodec.encode(message))
             assertEquals(message, ApplicationMessageCodec.decode(vector))
         }
 
-        assertArrayEquals(
-            byteArrayOf(0x03),
-            ApplicationMessageCodec.encode(ApplicationMessage.SessionReady),
-        )
-        assertEquals(
-            ApplicationMessage.SessionReady,
-            ApplicationMessageCodec.decode(byteArrayOf(0x03)),
-        )
+        val ready = GoldenVectors.bytes("session_ready")
+        assertArrayEquals(ready, ApplicationMessageCodec.encode(ApplicationMessage.SessionReady))
+        assertEquals(ApplicationMessage.SessionReady, ApplicationMessageCodec.decode(ready))
     }
 
     @Test
-    fun encodesAndDecodesControllerPresenceStatus() {
-        for ((connected, expected) in listOf(
-            false to byteArrayOf(0x11, 0),
-            true to byteArrayOf(0x11, 1),
-        )) {
-            val message = ApplicationMessage.ControllerStatus(connected)
-            assertArrayEquals(expected, ApplicationMessageCodec.encode(message))
-            assertEquals(message, ApplicationMessageCodec.decode(expected))
+    fun encodesAndDecodesControllerPresenceAgainstSharedVectors() {
+        val cases = listOf(
+            ApplicationMessage.ControllerStatus(false) to "controller_status_disconnected",
+            ApplicationMessage.ControllerStatus(true) to "controller_status_connected",
+        )
+
+        cases.forEach { (message, vectorName) ->
+            val vector = GoldenVectors.bytes(vectorName)
+            assertArrayEquals(vector, ApplicationMessageCodec.encode(message))
+            assertEquals(message, ApplicationMessageCodec.decode(vector))
         }
     }
 
     @Test
-    fun rejectsMalformedControllerPresenceStatus() {
+    fun encodesAndDecodesHeartbeatNoncesAgainstSharedVectors() {
+        val ping = ApplicationMessage.Ping(0x0102030405060708L)
+        val pong = ApplicationMessage.Pong(0x0102030405060708L)
+        val pingVector = GoldenVectors.bytes("ping_nonce_0102030405060708")
+        val pongVector = GoldenVectors.bytes("pong_nonce_0102030405060708")
+
+        assertArrayEquals(pingVector, ApplicationMessageCodec.encode(ping))
+        assertEquals(ping, ApplicationMessageCodec.decode(pingVector))
+        assertArrayEquals(pongVector, ApplicationMessageCodec.encode(pong))
+        assertEquals(pong, ApplicationMessageCodec.decode(pongVector))
+    }
+
+    @Test
+    fun rejectsSharedMalformedMessageVectors() {
         listOf(
-            byteArrayOf(0x11),
-            byteArrayOf(0x11, 2),
-            byteArrayOf(0x11, 1, 0),
-        ).forEach(::assertDecodeRejected)
+            "invalid_unknown_message",
+            "invalid_pairing_hello_major",
+            "invalid_pairing_hello_role",
+            "invalid_pairing_hello_utf8",
+            "invalid_pairing_decision_boolean",
+            "invalid_controller_status_boolean",
+            "invalid_ping_truncated",
+            "invalid_pong_extra_byte",
+            "invalid_input_state_hat",
+        ).forEach { vectorName ->
+            assertDecodeRejected(GoldenVectors.bytes(vectorName))
+        }
     }
 
     @Test
-    fun encodesAndDecodesHeartbeatNonces() {
-        val nonce = 0x0102030405060708L
-        val ping = ApplicationMessage.Ping(nonce)
-        val pong = ApplicationMessage.Pong(nonce)
-        val vector = byteArrayOf(
-            0x12, 1, 2, 3, 4, 5, 6, 7, 8,
-        )
-        assertArrayEquals(vector, ApplicationMessageCodec.encode(ping))
-        assertEquals(ping, ApplicationMessageCodec.decode(vector))
-        assertArrayEquals(vector.copyOf().also { it[0] = 0x13 }, ApplicationMessageCodec.encode(pong))
-        assertEquals(pong, ApplicationMessageCodec.decode(vector.copyOf().also { it[0] = 0x13 }))
-    }
-
-    @Test
-    fun rejectsMalformedHeartbeatMessages() {
-        assertDecodeRejected(byteArrayOf(0x12))
-        assertDecodeRejected(byteArrayOf(0x13, 0, 0, 0, 0, 0, 0, 0))
-        assertDecodeRejected(byteArrayOf(0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0))
-    }
-
-    @Test
-    fun rejectsMalformedPairingMessages() {
-        val invalidMessages = listOf(
-            byteArrayOf(0x01),
-            byteArrayOf(0x01, 2, 0, 1, 1, 'P'.code.toByte()),
-            byteArrayOf(0x01, 1, 0, 9, 1, 'P'.code.toByte()),
-            byteArrayOf(0x01, 1, 0, 1, 0),
-            byteArrayOf(0x02, 2),
-            byteArrayOf(0x02, 1, 0),
-            byteArrayOf(0x03, 0),
-            byteArrayOf(0x7F),
-        )
-
-        invalidMessages.forEach(::assertDecodeRejected)
-    }
-
-    @Test
-    fun rejectsInvalidDisplayNames() {
+    fun rejectsInvalidDisplayNamesAndOutOfRangeMinorVersions() {
         val tooLong = ApplicationMessage.PairingHello(
             1,
             0,
             PeerRole.DESKTOP,
             "x".repeat(ApplicationMessageCodec.MAX_DISPLAY_NAME_LENGTH + 1),
         )
-        try {
-            ApplicationMessageCodec.encode(tooLong)
-            fail("Expected IllegalArgumentException")
-        } catch (_: IllegalArgumentException) {
-            // Expected.
-        }
+        assertEncodeRejected(tooLong)
 
-        assertDecodeRejected(
-            byteArrayOf(0x01, 1, 0, 2, 2, 'W'.code.toByte(), 0x0A),
+        assertEncodeRejected(
+            ApplicationMessage.PairingHello(1, 256, PeerRole.DESKTOP, "Linux"),
+        )
+        assertEncodeRejected(
+            ApplicationMessage.PairingHello(1, 0, PeerRole.DESKTOP, "WiPad\nDesktop"),
         )
     }
 
@@ -136,6 +106,15 @@ class ApplicationMessageCodecTest {
             ApplicationMessageCodec.decode(payload)
             fail("Expected IOException")
         } catch (_: IOException) {
+            // Expected.
+        }
+    }
+
+    private fun assertEncodeRejected(message: ApplicationMessage) {
+        try {
+            ApplicationMessageCodec.encode(message)
+            fail("Expected IllegalArgumentException")
+        } catch (_: IllegalArgumentException) {
             // Expected.
         }
     }
