@@ -29,9 +29,8 @@ internal class PairingApprovalCoordinator(
             if (pending != null) return false
             pending = request
         }
-        onPendingChanged(prompt)
-
         return try {
+            onPendingChanged(prompt)
             request.decision.get(timeoutMillis, TimeUnit.MILLISECONDS)
         } catch (_: TimeoutException) {
             false
@@ -50,9 +49,9 @@ internal class PairingApprovalCoordinator(
 
     fun pendingRequest(): PairingPrompt? = synchronized(lock) { pending?.prompt }
 
-    fun decide(approved: Boolean): Boolean {
-        val request = synchronized(lock) { pending } ?: return false
-        return request.decision.complete(approved)
+    fun decide(approved: Boolean): Boolean = synchronized(lock) {
+        val request = pending ?: return@synchronized false
+        request.decision.complete(approved)
     }
 
     fun cancelPending() {
