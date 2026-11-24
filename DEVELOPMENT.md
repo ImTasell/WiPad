@@ -36,15 +36,15 @@ WiPad/
 └── LICENSE
 ```
 
-The Android build currently uses Gradle 9.6.0, Android Gradle Plugin 9.5.0 with AGP built-in Kotlin, Compose compiler plugin 2.4.10, JDK 17, compile SDK 37, target SDK 36, and Compose BOM 2026.09.00. The desktop uses Rust 1.95+ and Slint 1.19.0. These are initial pinned versions and should be upgraded deliberately. A Gradle wrapper has not been checked in yet; CI installs the pinned Gradle version directly. The desktop `Cargo.lock` should be generated and committed once the first dependency resolution succeeds.
+The Android build currently uses Gradle 9.6.0, Android Gradle Plugin 9.5.0 with AGP built-in Kotlin, Compose compiler plugin 2.4.10, JDK 17, compile SDK 37 (Android 17 preview), target SDK 36, and Compose BOM 2026.09.00. The desktop uses Rust 1.95+ and Slint 1.19.0. These are initial pinned versions and should be upgraded deliberately. A Gradle wrapper has not been checked in yet; CI installs the pinned Gradle version directly. The desktop `Cargo.lock` should be generated and committed once the first dependency resolution succeeds.
 
 ## 3. Android development
 
 ### Requirements
 
 - JDK 17.
-- Android SDK Platform 37 for compilation.
-- Android SDK Build-Tools 37.0.0 and platform tools.
+- Android 17 (API 37) preview SDK platform for compilation; install it from the preview channel.
+- Android SDK Build-Tools 37.x and platform tools.
 - Android Gradle Plugin 9.5.0 with built-in Kotlin, and Gradle 9.6.0.
 - An Android 11+ device or emulator for testing.
 
@@ -135,7 +135,7 @@ GitHub Actions should validate both platform projects independently, then run sh
 ### Android CI
 
 - Set up the pinned JDK.
-- Use the Android SDK preinstalled on the GitHub-hosted runner; install only the required platform, build-tools, and platform-tools packages with `sdkmanager`.
+- Use the Android SDK command-line tools preinstalled on the GitHub-hosted runner; install API 37 and matching Build-Tools from the preview channel with `sdkmanager --channel=3`.
 - Compile against API 37 while keeping target SDK 36 until runtime behavior changes are deliberately tested.
 - Enable Gradle dependency/build caching.
 - Run unit tests, lint, and debug assembly.
