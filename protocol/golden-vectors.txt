@@ -1,6 +1,6 @@
 # Canonical WiPad protocol test vectors.
 # Format: name=hexadecimal_bytes
-# All values are application payloads unless the name starts with "frame_".
+# All values are application payloads except vectors whose names contain "frame".
 # Invalid vectors are shared rejection fixtures.
 
 pairing_hello_phone=010102010550686f6e65
