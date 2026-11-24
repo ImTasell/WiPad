@@ -42,7 +42,7 @@ The protocol has a major and minor version.
 - Implementations may ignore unknown optional capabilities and optional message types.
 - Required fields must never be silently ignored.
 
-The initial protocol family is major version `1`. The discovery record advertises supported major versions before a session is attempted.
+The initial protocol family is major version `1`. The controller-presence message is introduced in minor version `1`; implementations must reject peers advertising a lower minor version because they cannot safely process this session behavior. The discovery record advertises supported major versions before a session is attempted.
 
 ## 4. Automatic LAN discovery
 
@@ -162,6 +162,7 @@ The protocol defines logical messages independently of the eventual transport. T
 | `SESSION_READY` | Both | Confirm both peers approved and the session may accept input |
 | `INPUT_STATE` | Phone → Desktop | Send a complete controller-state snapshot |
 | `CONTROLLER_STATUS` | Phone → Desktop | Report whether a physical controller is connected |
+| `CONTROLLER_STATUS` | Phone → Desktop | Report whether a physical controller is connected |
 | `PING` | Both | Liveness probe |
 | `PONG` | Both | Liveness response |
 | `CONTROLLER_STATUS` | Phone → Desktop | Report controller connected/disconnected state |
@@ -187,7 +188,8 @@ The application payload begins with a one-byte message type. Message payload def
 - `PAIRING_HELLO`: protocol major (u8), protocol minor (u8), role (u8: 1 phone, 2 desktop), display-name length (u8, at most 64), UTF-8 display name.
 - `PAIRING_DECISION`: one byte, `0` reject or `1` approve. Each side sends at most one decision per connection.
 - `SESSION_READY`: empty payload. Each peer sends it only after its local and remote approval flags are both true.
-- `INPUT_STATE`, `PING`, `PONG`, `CONTROLLER_STATUS`, `GOODBYE`, and `ERROR`: their message-specific payloads are defined by the protocol sections below.
+- `CONTROLLER_STATUS`: one byte after the type (`0` disconnected, `1` connected). The phone sends this immediately after session readiness and whenever physical controller presence changes. On `0`, the desktop releases all virtual controls immediately and ignores subsequent input snapshots until a `1` status arrives.
+- `INPUT_STATE`, `PING`, `PONG`, `GOODBYE`, and `ERROR`: their message-specific payloads are defined by the protocol sections below.
 
 The Rust and Kotlin implementations share the same frame conformance vector and malformed-frame tests. See [docs/TCP_FRAMING.md](docs/TCP_FRAMING.md).
 
