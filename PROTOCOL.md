@@ -278,7 +278,11 @@ Do not expose cryptographic internals or sensitive implementation details in use
 
 ## 12. Compatibility and testing
 
-Both implementations must share protocol test vectors for:
+Both implementations consume the canonical byte-level fixtures in [protocol/golden-vectors.txt](protocol/golden-vectors.txt). Rust includes the file at compile time; Android loads the same file as a unit-test resource. Do not duplicate expected wire bytes in either test suite.
+
+The shared vectors cover pairing hello for both roles, pairing decisions, session readiness, controller presence, heartbeat nonces, controller input state, and TCP framing. Shared malformed fixtures cover invalid message types, versions, roles, UTF-8, boolean values, heartbeat lengths, controller state, and frame boundaries.
+
+Both implementations must also test:
 
 - Version compatibility and rejection.
 - Discovery metadata parsing and malformed records.
