@@ -115,9 +115,20 @@ This is approval-based pairing, not PIN pairing. After the initial approval, nor
 
 ### 5.3 Cryptographic selection
 
-The exact handshake and cipher suite are intentionally not frozen in this draft. Before implementation, select a reviewed protocol and maintained libraries that interoperate between Android and Rust. Do not invent a custom key exchange or encryption scheme.
+The initial implementation uses mutual TLS 1.3 with ECDSA P-256 identities and a TLS 1.3 AEAD cipher suite negotiated by the platform libraries.
 
-The selected session security must provide peer authentication, confidentiality, integrity, replay protection, and fresh session keys. No input message is accepted before authentication completes.
+- The desktop is the TLS server; the phone is the TLS client.
+- Both peers present a client/server certificate and prove possession of the corresponding private key during the TLS 1.3 handshake.
+- Android stores its non-exportable P-256 private key in Android Keystore. The Linux desktop stores its PKCS#8 private key in its private WiPad configuration directory with owner-only permissions.
+- Each certificate must contain a currently valid P-256 public key. TLS 1.3 CertificateVerify signatures are verified by the TLS implementation.
+- The first connection may authenticate an as-yet-unpinned certificate only for the purpose of first-contact pairing. No application messages carrying input are accepted at this point.
+- Both peers derive the same short comparison string from SHA-256 over a domain separator and the ordered phone and desktop certificate fingerprints. Both users must compare the displayed string and explicitly approve the peer before the fingerprint is persisted.
+- The stored SHA-256 certificate fingerprint is the peer identity for subsequent reconnects. A mismatch is an identity change, not an ordinary reconnect, and requires re-approval.
+- Every reconnect performs a new TLS 1.3 handshake with fresh traffic keys. The stored pin is checked during certificate verification.
+
+The short comparison string is for out-of-band comparison on both screens. It is not entered as a PIN and is not a substitute for TLS authentication. A successful TLS handshake does not by itself authorize controller input: the peer-trust and approval state must be complete first.
+
+Implementations must not disable TLS signature verification, accept arbitrary cipher suites, or persist a peer fingerprint automatically just because discovery or a TLS handshake succeeded.
 
 ## 6. Session lifecycle
 
