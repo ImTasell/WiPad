@@ -5,6 +5,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import java.io.Closeable
+import java.net.InetAddress
 import java.net.ServerSocket
 import java.util.UUID
 
@@ -15,6 +16,7 @@ import java.util.UUID
 class LanDiscovery(
     context: Context,
     private val onStatus: (String) -> Unit,
+    private val onDesktopResolved: (InetAddress, Int, String) -> Unit = { _, _, _ -> },
 ) : Closeable {
     companion object {
         private const val PHONE_SERVICE = "_wipad-phone._tcp."
@@ -96,8 +98,15 @@ class LanDiscovery(
                                     onStatus("Found desktop · resolving failed ($errorCode)")
                                 }
                                 override fun onServiceResolved(info: NsdServiceInfo) {
-                                    val address = info.host?.hostAddress ?: "address unavailable"
-                                    onStatus("Desktop found · ${info.serviceName} · $address")
+                                    val host = info.host
+                                    val port = info.port
+                                    if (host == null || port !in 1..65535) {
+                                        onStatus("Desktop found · endpoint is invalid")
+                                        return
+                                    }
+
+                                    onStatus("Desktop found · ${info.serviceName} · ${host.hostAddress}")
+                                    onDesktopResolved(host, port, info.serviceName)
                                 }
                             })
                         } catch (_: IllegalArgumentException) {
