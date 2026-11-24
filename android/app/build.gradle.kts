@@ -26,7 +26,7 @@ android {
 
     sourceSets {
         getByName("test") {
-            resources.srcDir(rootProject.file("../protocol"))
+            resources.srcDir(rootProject.file("protocol"))
         }
     }
 
