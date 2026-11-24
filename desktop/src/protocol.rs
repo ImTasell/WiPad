@@ -298,14 +298,14 @@ mod tests {
     fn encodes_the_shared_phone_pairing_hello_vector() {
         let message = ApplicationMessage::PairingHello {
             major: 1,
-            minor: 1,
+            minor: 2,
             role: PeerRole::Phone,
             display_name: "Phone".to_owned(),
         };
 
         assert_eq!(
             encode_application_message(&message).unwrap(),
-            [0x01, 0x01, 0x01, 0x01, 0x05, b'P', b'h', b'o', b'n', b'e']
+            [0x01, 0x01, 0x02, 0x01, 0x05, b'P', b'h', b'o', b'n', b'e']
         );
     }
 
@@ -317,7 +317,7 @@ mod tests {
             decode_application_message(&encoded).unwrap(),
             ApplicationMessage::PairingHello {
                 major: 1,
-                minor: 0,
+                minor: 2,
                 role: PeerRole::Phone,
                 display_name: "Phone".to_owned(),
             }
@@ -348,6 +348,29 @@ mod tests {
 
         assert_eq!(encode_application_message(&message).unwrap(), expected);
         assert_eq!(decode_application_message(&expected).unwrap(), message);
+    }
+
+    #[test]
+    fn encodes_and_decodes_heartbeat_nonces() {
+        let nonce = 0x0102_0304_0506_0708;
+        let ping = ApplicationMessage::Ping { nonce };
+        let pong = ApplicationMessage::Pong { nonce };
+        let ping_vector = [0x12, 1, 2, 3, 4, 5, 6, 7, 8];
+        let pong_vector = [0x13, 1, 2, 3, 4, 5, 6, 7, 8];
+        assert_eq!(encode_application_message(&ping).unwrap(), ping_vector);
+        assert_eq!(decode_application_message(&ping_vector).unwrap(), ping);
+        assert_eq!(encode_application_message(&pong).unwrap(), pong_vector);
+        assert_eq!(decode_application_message(&pong_vector).unwrap(), pong);
+    }
+
+    #[test]
+    fn rejects_malformed_heartbeat_messages() {
+        for malformed in [&[0x12][..], &[0x13, 0, 0, 0, 0, 0, 0, 0][..], &[0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0][..]] {
+            assert_eq!(
+                decode_application_message(malformed).unwrap_err().kind(),
+                io::ErrorKind::InvalidData
+            );
+        }
     }
 
     #[test]
