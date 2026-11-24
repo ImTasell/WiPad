@@ -147,8 +147,10 @@ mod tests {
             .filter_map(|line| line.split_once('='))
             .find_map(|(key, value)| (key == name).then_some(value.trim()))
             .unwrap_or_else(|| panic!("missing golden vector: {name}"));
-        hex.as_bytes()
-            .chunks_exact(2)
+        let (pairs, remainder) = hex.as_bytes().as_chunks::<2>();
+        assert!(remainder.is_empty(), "odd-length golden vector: {name}");
+        pairs
+            .iter()
             .map(|pair| {
                 u8::from_str_radix(std::str::from_utf8(pair).expect("ASCII hex"), 16)
                     .expect("valid golden-vector hex")
