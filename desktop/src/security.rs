@@ -1,61 +1,80 @@
-use snow::{Builder, HandshakeState, TransportState, params::NoiseParams};
+use rcgen::{CertificateParams, KeyPair, PKCS_ECDSA_P256_SHA256};
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::{
+    CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime,
+};
+use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
+use rustls::{
+    ClientConfig, ClientConnection, CryptoProvider, DigitallySignedStruct, DistinguishedName,
+    Error as TlsError, ProtocolVersion, ServerConfig, ServerConnection, SignatureScheme,
+};
+use rustls::{crypto, version};
+use sha2::{Digest, Sha256};
+use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 use uuid::Uuid;
+use x509_parser::parse_x509_certificate;
 use zeroize::Zeroizing;
 
-use crate::protocol::MAX_FRAME_LENGTH;
+const IDENTITY_MAGIC: &[u8; 5] = b"WIPI\x02";
+const TRUST_MAGIC: &[u8; 5] = b"WIPR\x01";
+const KEY_KIND_EC_PUBLIC_KEY: &str = "1.2.840.10045.2.1";
+const CURVE_P256: &str = "1.2.840.10045.3.1.7";
+const MAX_CERTIFICATE_LENGTH: usize = 8 * 1024;
+const MAX_PRIVATE_KEY_LENGTH: usize = 4 * 1024;
+const PAIRING_DOMAIN: &[u8] = b"WiPad TLS peer comparison v1\0";
 
-const NOISE_PROTOCOL: &str = "Noise_XX_25519_ChaChaPoly_SHA256";
-const IDENTITY_MAGIC: &[u8; 5] = b"WIPK\x01";
-const STATIC_KEY_LENGTH: usize = 32;
-const AEAD_TAG_LENGTH: usize = 16;
-const MAX_PLAINTEXT_LENGTH: usize = MAX_FRAME_LENGTH - AEAD_TAG_LENGTH;
-
-fn noise_params() -> NoiseParams {
-    NOISE_PROTOCOL
-        .parse()
-        .expect("WiPad's static Noise protocol name must remain valid")
-}
-
-/// Long-lived X25519 identity for this desktop installation.
+/// Stable local P-256 TLS identity.
 ///
-/// Only the private key is persisted. The public key is authenticated and
-/// exchanged by the Noise XX handshake, never by the discovery advertisement.
-pub struct NoiseIdentity {
-    private_key: Zeroizing<Vec<u8>>,
+/// The desktop private key is stored as PKCS#8 and protected by owner-only
+/// filesystem permissions. The Android peer uses Android Keystore instead.
+pub struct TlsIdentity {
+    certificate_der: Vec<u8>,
+    private_key_pkcs8: Zeroizing<Vec<u8>>,
 }
 
-impl NoiseIdentity {
-    /// Generates a new random Noise static key.
+impl TlsIdentity {
     pub fn generate() -> io::Result<Self> {
-        let keypair = Builder::new(noise_params())
-            .generate_keypair()
+        let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)
             .map_err(|error| io::Error::other(error.to_string()))?;
 
-        if keypair.private.len() != STATIC_KEY_LENGTH {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Noise provider returned an unexpected private-key length",
-            ));
-        }
+        let mut params = CertificateParams::new(vec!["wipad.local".to_owned()])
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        let now = time::OffsetDateTime::now_utc();
+        params.not_before = now - time::Duration::days(1);
+        params.not_after = now + time::Duration::days(3650);
+
+        let certificate = params
+            .self_signed(&key_pair)
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        let certificate_der = certificate.der().to_vec();
+        let private_key_pkcs8 = Zeroizing::new(key_pair.serialize_der());
+
+        validate_peer_certificate(&certificate_der, None)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
 
         Ok(Self {
-            private_key: Zeroizing::new(keypair.private),
+            certificate_der,
+            private_key_pkcs8,
         })
     }
 
-    /// Loads an existing identity or creates it if absent.
+    /// Loads a persisted identity or creates it atomically when absent.
     ///
-    /// The file format is a five-byte magic/version prefix followed by the
-    /// 32-byte private key. Existing malformed files are rejected rather
-    /// than silently replacing the installation identity.
+    /// File format: magic/version, certificate length (u32 BE), private-key
+    /// length (u32 BE), certificate DER, PKCS#8 private-key DER.
     pub fn load_or_create(path: impl AsRef<Path>) -> io::Result<Self> {
         let path = path.as_ref();
 
-        if path.exists() {
-            return Self::load(path);
+        match fs::symlink_metadata(path) {
+            Ok(_) => return Self::load(path),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
         }
 
         let identity = Self::generate()?;
@@ -73,9 +92,17 @@ impl NoiseIdentity {
 
         match options.open(path) {
             Ok(mut file) => {
+                let certificate_length = u32::try_from(identity.certificate_der.len())
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "certificate too large"))?;
+                let key_length = u32::try_from(identity.private_key_pkcs8.len())
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "private key too large"))?;
+
                 let result = file
                     .write_all(IDENTITY_MAGIC)
-                    .and_then(|()| file.write_all(&identity.private_key))
+                    .and_then(|()| file.write_all(&certificate_length.to_be_bytes()))
+                    .and_then(|()| file.write_all(&key_length.to_be_bytes()))
+                    .and_then(|()| file.write_all(&identity.certificate_der))
+                    .and_then(|()| file.write_all(&identity.private_key_pkcs8))
                     .and_then(|()| file.sync_all());
 
                 if let Err(error) = result {
@@ -100,6 +127,15 @@ impl NoiseIdentity {
             ));
         }
 
+        if metadata.len() as usize
+            > IDENTITY_MAGIC.len() + 8 + MAX_CERTIFICATE_LENGTH + MAX_PRIVATE_KEY_LENGTH
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "WiPad identity file exceeds the size limit",
+            ));
+        }
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -112,163 +148,107 @@ impl NoiseIdentity {
         }
 
         let mut file = File::open(path)?;
-        let mut bytes =
-            Zeroizing::new(Vec::with_capacity(IDENTITY_MAGIC.len() + STATIC_KEY_LENGTH));
+        let mut bytes = Zeroizing::new(Vec::with_capacity(metadata.len() as usize));
         file.read_to_end(&mut bytes)?;
 
-        if bytes.len() != IDENTITY_MAGIC.len() + STATIC_KEY_LENGTH
-            || &bytes[..IDENTITY_MAGIC.len()] != IDENTITY_MAGIC
-        {
+        let header_length = IDENTITY_MAGIC.len() + 8;
+        if bytes.len() < header_length || &bytes[..IDENTITY_MAGIC.len()] != IDENTITY_MAGIC {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "WiPad identity file has an unsupported format or invalid length",
+                "WiPad identity file has an unsupported format",
             ));
         }
 
+        let certificate_length = u32::from_be_bytes(
+            bytes[IDENTITY_MAGIC.len()..IDENTITY_MAGIC.len() + 4]
+                .try_into()
+                .expect("four-byte certificate length"),
+        ) as usize;
+        let key_length = u32::from_be_bytes(
+            bytes[IDENTITY_MAGIC.len() + 4..header_length]
+                .try_into()
+                .expect("four-byte private-key length"),
+        ) as usize;
+
+        if certificate_length == 0
+            || certificate_length > MAX_CERTIFICATE_LENGTH
+            || key_length == 0
+            || key_length > MAX_PRIVATE_KEY_LENGTH
+            || bytes.len() != header_length + certificate_length + key_length
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "WiPad identity file has invalid component lengths",
+            ));
+        }
+
+        let certificate_start = header_length;
+        let key_start = certificate_start + certificate_length;
+        let certificate_der = bytes[certificate_start..key_start].to_vec();
+        let private_key_pkcs8 = Zeroizing::new(bytes[key_start..].to_vec());
+
+        validate_peer_certificate(&certificate_der, None)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+
         Ok(Self {
-            private_key: Zeroizing::new(bytes[IDENTITY_MAGIC.len()..].to_vec()),
+            certificate_der,
+            private_key_pkcs8,
         })
     }
 
-    /// Returns the stable identity file path used by the desktop application.
     pub fn default_path() -> io::Result<PathBuf> {
         let config_root = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no user config directory"))?;
 
-        Ok(config_root.join("wipad").join("identity.noise"))
+        Ok(config_root.join("wipad").join("identity.tls"))
     }
 
-    fn handshake_builder(&self) -> Result<Builder<'_>, String> {
-        Builder::new(noise_params())
-            .local_private_key(&self.private_key)
-            .map_err(|error| error.to_string())
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum HandshakeRole {
-    Initiator,
-    Responder,
-}
-
-/// One side of a Noise XX handshake.
-///
-/// Call write_message or read_message according to the Noise turn. A caller
-/// must not send application data until finish succeeds and the remote
-/// identity has been evaluated against the local trust store.
-pub struct NoiseHandshake {
-    state: HandshakeState,
-    failed: bool,
-}
-
-impl NoiseHandshake {
-    pub fn new(identity: &NoiseIdentity, role: HandshakeRole) -> Result<Self, String> {
-        let builder = identity.handshake_builder()?;
-        let state = match role {
-            HandshakeRole::Initiator => builder.build_initiator(),
-            HandshakeRole::Responder => builder.build_responder(),
-        }
-        .map_err(|error| error.to_string())?;
-
-        Ok(Self {
-            state,
-            failed: false,
-        })
+    pub fn certificate_der(&self) -> &[u8] {
+        &self.certificate_der
     }
 
-    /// Creates the next handshake record. The payload is intentionally empty.
-    pub fn write_message(&mut self) -> Result<Vec<u8>, String> {
-        if self.failed || !self.state.is_my_turn() || self.state.is_handshake_finished() {
-            return Err("Noise handshake is not ready to write".to_owned());
-        }
-
-        let mut message = [0_u8; MAX_FRAME_LENGTH];
-        match self.state.write_message(&[], &mut message) {
-            Ok(length) if length > 0 && length <= MAX_FRAME_LENGTH => {
-                Ok(message[..length].to_vec())
-            }
-            Ok(_) => {
-                self.failed = true;
-                Err("Noise produced an invalid handshake record length".to_owned())
-            }
-            Err(error) => {
-                self.failed = true;
-                Err(error.to_string())
-            }
-        }
+    fn private_key_der(&self) -> PrivateKeyDer<'static> {
+        PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(self.private_key_pkcs8.to_vec()))
     }
 
-    /// Consumes a handshake record. Non-empty handshake payloads are rejected.
-    pub fn read_message(&mut self, message: &[u8]) -> Result<(), String> {
-        if self.failed
-            || self.state.is_my_turn()
-            || self.state.is_handshake_finished()
-            || message.is_empty()
-            || message.len() > MAX_FRAME_LENGTH
-        {
-            self.failed = true;
-            return Err("Noise handshake record is invalid for the current state".to_owned());
-        }
-
-        let mut payload = [0_u8; MAX_FRAME_LENGTH];
-        match self.state.read_message(message, &mut payload) {
-            Ok(0) => Ok(()),
-            Ok(_) => {
-                self.failed = true;
-                Err("Unexpected payload in Noise handshake".to_owned())
-            }
-            Err(error) => {
-                self.failed = true;
-                Err(error.to_string())
-            }
-        }
-    }
-
-    pub fn is_finished(&self) -> bool {
-        !self.failed && self.state.is_handshake_finished()
-    }
-
-    /// Finalizes the handshake and exposes the authenticated remote static key.
-    ///
-    /// The caller still has to compare remote_static with its trust store.
-    /// For a new peer, both apps must compare authentication_string and
-    /// explicitly approve before using the returned transport.
-    pub fn finish(self) -> Result<EstablishedSession, String> {
-        if self.failed || !self.state.is_handshake_finished() {
-            return Err("Cannot finish an incomplete or failed Noise handshake".to_owned());
-        }
-
-        let remote_static = self
-            .state
-            .get_remote_static()
-            .ok_or_else(|| "Noise XX did not produce a remote static identity".to_owned())?
-            .to_vec();
-        let handshake_hash = self.state.get_handshake_hash().to_vec();
-        let authentication_string = authentication_string(&handshake_hash)?;
-
-        let transport = self
-            .state
-            .into_transport_mode()
-            .map_err(|error| error.to_string())?;
-
-        Ok(EstablishedSession {
-            remote_static,
-            authentication_string,
-            transport: NoiseTransport {
-                inner: transport,
-                closed: false,
-            },
-        })
+    pub fn fingerprint(&self) -> [u8; 32] {
+        certificate_fingerprint(&self.certificate_der)
     }
 }
 
-/// Session metadata and encrypted record transport after a completed handshake.
-pub struct EstablishedSession {
-    pub remote_static: Vec<u8>,
-    pub authentication_string: String,
-    pub transport: NoiseTransport,
+/// Computes a SHA-256 fingerprint over the exact DER certificate bytes.
+pub fn certificate_fingerprint(certificate_der: &[u8]) -> [u8; 32] {
+    Sha256::digest(certificate_der).into()
+}
+
+/// Returns the same comparison string on both devices when passed the same
+/// phone certificate and desktop certificate, in that role order.
+pub fn pairing_string(
+    phone_certificate_der: &[u8],
+    desktop_certificate_der: &[u8],
+) -> Result<String, String> {
+    if phone_certificate_der.is_empty()
+        || desktop_certificate_der.is_empty()
+        || phone_certificate_der.len() > MAX_CERTIFICATE_LENGTH
+        || desktop_certificate_der.len() > MAX_CERTIFICATE_LENGTH
+    {
+        return Err("Pairing certificate length is invalid".to_owned());
+    }
+
+    let phone_fingerprint = certificate_fingerprint(phone_certificate_der);
+    let desktop_fingerprint = certificate_fingerprint(desktop_certificate_der);
+    let mut hash = Sha256::new();
+    hash.update(PAIRING_DOMAIN);
+    hash.update(phone_fingerprint);
+    hash.update(desktop_fingerprint);
+    let digest = hash.finalize();
+
+    Ok(format!(
+        "{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}",
+        digest[0], digest[1], digest[2], digest[3], digest[4], digest[5]
+    ))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -278,22 +258,21 @@ pub enum TrustDecision {
     IdentityChanged,
 }
 
-/// Evaluates a presented Noise static key against the single trusted peer.
-pub fn evaluate_trust(trusted: Option<&[u8]>, observed: &[u8]) -> TrustDecision {
-    match trusted {
+pub fn evaluate_trust(
+    trusted_fingerprint: Option<&[u8; 32]>,
+    observed_fingerprint: &[u8; 32],
+) -> TrustDecision {
+    match trusted_fingerprint {
         None => TrustDecision::NeedsApproval,
-        Some(key) if key == observed => TrustDecision::Trusted,
+        Some(expected) if expected == observed_fingerprint => TrustDecision::Trusted,
         Some(_) => TrustDecision::IdentityChanged,
     }
 }
 
-const TRUST_MAGIC: &[u8; 5] = b"WIPT\x01";
-
-/// Persistent trust record for the single paired peer.
+/// Single-peer certificate pin store.
 ///
-/// The record contains only the peer's 32-byte public static key. Calling
-/// store is the explicit approval boundary; discovery and handshake code
-/// must not call it automatically.
+/// The store operation is the explicit approval boundary. Discovery and TLS
+/// verification must never write this file automatically.
 pub struct TrustStore {
     path: PathBuf,
 }
@@ -309,48 +288,38 @@ impl TrustStore {
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no user config directory"))?;
 
-        Ok(config_root.join("wipad").join("trusted-peer.noise"))
+        Ok(config_root.join("wipad").join("trusted-peer.sha256"))
     }
 
-    pub fn load(&self) -> io::Result<Option<Vec<u8>>> {
+    pub fn load(&self) -> io::Result<Option<[u8; 32]>> {
         let metadata = match fs::symlink_metadata(&self.path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),
         };
 
-        if metadata.file_type().is_symlink() || !metadata.is_file() {
+        if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() != 37 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "WiPad trust path must be a regular file, not a symlink",
+                "WiPad trust record is not a valid regular file",
             ));
         }
 
-        let mut file = File::open(&self.path)?;
-        let mut bytes = Vec::with_capacity(TRUST_MAGIC.len() + STATIC_KEY_LENGTH);
-        file.read_to_end(&mut bytes)?;
-
-        if bytes.len() != TRUST_MAGIC.len() + STATIC_KEY_LENGTH
-            || &bytes[..TRUST_MAGIC.len()] != TRUST_MAGIC
-        {
+        let mut bytes = [0_u8; 37];
+        File::open(&self.path)?.read_exact(&mut bytes)?;
+        if &bytes[..5] != TRUST_MAGIC {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "WiPad trust record has an unsupported format or invalid length",
+                "WiPad trust record has an unsupported format",
             ));
         }
 
-        Ok(Some(bytes[TRUST_MAGIC.len()..].to_vec()))
+        let mut fingerprint = [0_u8; 32];
+        fingerprint.copy_from_slice(&bytes[5..]);
+        Ok(Some(fingerprint))
     }
 
-    /// Persists a peer key after the user approves the first-contact pairing.
-    pub fn store(&self, peer_public_key: &[u8]) -> io::Result<()> {
-        if peer_public_key.len() != STATIC_KEY_LENGTH {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "WiPad peer public key must be exactly 32 bytes",
-            ));
-        }
-
+    pub fn store(&self, fingerprint: &[u8; 32]) -> io::Result<()> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -375,9 +344,8 @@ impl TrustStore {
         let mut file = options.open(&temporary_path)?;
         let result = file
             .write_all(TRUST_MAGIC)
-            .and_then(|()| file.write_all(peer_public_key))
+            .and_then(|()| file.write_all(fingerprint))
             .and_then(|()| file.sync_all());
-
         if let Err(error) = result {
             drop(file);
             let _ = fs::remove_file(&temporary_path);
@@ -390,18 +358,17 @@ impl TrustStore {
             return Err(error);
         }
 
-        if let Some(parent) = self.path.parent() {
-            if let Ok(directory) = File::open(parent) {
-                directory.sync_all()?;
-            }
+        if let Some(parent) = self.path.parent()
+            && let Ok(directory) = File::open(parent)
+        {
+            directory.sync_all()?;
         }
 
         Ok(())
     }
 
-    pub fn decision(&self, observed: &[u8]) -> io::Result<TrustDecision> {
-        let trusted = self.load()?;
-        Ok(evaluate_trust(trusted.as_deref(), observed))
+    pub fn decision(&self, observed: &[u8; 32]) -> io::Result<TrustDecision> {
+        Ok(evaluate_trust(self.load()?.as_ref(), observed))
     }
 
     pub fn revoke(&self) -> io::Result<()> {
@@ -413,249 +380,311 @@ impl TrustStore {
     }
 }
 
-/// Creates a 48-bit comparison string from the symmetric Noise handshake hash.
-///
-/// The value is for visual comparison on both devices, not a secret or a PIN.
-pub fn authentication_string(handshake_hash: &[u8]) -> Result<String, String> {
-    if handshake_hash.len() < 6 {
-        return Err("Noise handshake hash is too short".to_owned());
+fn tls_provider() -> Arc<CryptoProvider> {
+    Arc::new(crypto::ring::default_provider())
+}
+
+fn validate_peer_certificate(
+    certificate_der: &[u8],
+    expected_fingerprint: Option<&[u8; 32]>,
+) -> Result<[u8; 32], TlsError> {
+    if certificate_der.is_empty() || certificate_der.len() > MAX_CERTIFICATE_LENGTH {
+        return Err(TlsError::General("peer certificate length is invalid".to_owned()));
     }
 
-    Ok(format!(
-        "{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}",
-        handshake_hash[0],
-        handshake_hash[1],
-        handshake_hash[2],
-        handshake_hash[3],
-        handshake_hash[4],
-        handshake_hash[5],
-    ))
+    let (remaining, certificate) = parse_x509_certificate(certificate_der)
+        .map_err(|_| TlsError::General("peer certificate is malformed".to_owned()))?;
+    if !remaining.is_empty() || !certificate.tbs_certificate.validity().is_valid() {
+        return Err(TlsError::General(
+            "peer certificate encoding or validity is invalid".to_owned(),
+        ));
+    }
+
+    let public_key_algorithm = certificate
+        .tbs_certificate
+        .subject_pki
+        .algorithm
+        .algorithm
+        .to_id_string();
+    let curve = certificate
+        .tbs_certificate
+        .subject_pki
+        .algorithm
+        .parameters
+        .as_ref()
+        .and_then(|parameters| parameters.as_oid().ok())
+        .map(|oid| oid.to_id_string());
+
+    if public_key_algorithm != KEY_KIND_EC_PUBLIC_KEY || curve.as_deref() != Some(CURVE_P256) {
+        return Err(TlsError::General(
+            "peer certificate must use an ECDSA P-256 public key".to_owned(),
+        ));
+    }
+
+    let fingerprint: [u8; 32] = Sha256::digest(certificate_der).into();
+    if expected_fingerprint.is_some_and(|expected| expected != &fingerprint) {
+        return Err(TlsError::General(
+            "peer certificate does not match the trusted identity".to_owned(),
+        ));
+    }
+
+    Ok(fingerprint)
 }
 
-/// Encrypted Noise transport for the reliable, ordered TCP session.
-pub struct NoiseTransport {
-    inner: TransportState,
-    closed: bool,
+struct PeerCertificateVerifier {
+    provider: Arc<CryptoProvider>,
+    expected_fingerprint: Option<[u8; 32]>,
 }
 
-impl NoiseTransport {
-    /// Encrypts one bounded application record.
-    pub fn seal(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, String> {
-        if self.closed {
-            return Err("Noise transport is closed".to_owned());
+impl fmt::Debug for PeerCertificateVerifier {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PeerCertificateVerifier")
+            .field("has_pin", &self.expected_fingerprint.is_some())
+            .finish()
+    }
+}
+
+impl PeerCertificateVerifier {
+    fn new(expected_fingerprint: Option<[u8; 32]>) -> Self {
+        Self {
+            provider: tls_provider(),
+            expected_fingerprint,
         }
-        if plaintext.is_empty() || plaintext.len() > MAX_PLAINTEXT_LENGTH {
-            return Err(format!(
-                "WiPad plaintext length must be between 1 and {MAX_PLAINTEXT_LENGTH} bytes"
+    }
+
+    fn validate(&self, certificate: &CertificateDer<'_>) -> Result<(), TlsError> {
+        validate_peer_certificate(certificate.as_ref(), self.expected_fingerprint.as_ref())?;
+        Ok(())
+    }
+
+    fn verify_tls13(
+        &self,
+        message: &[u8],
+        certificate: &CertificateDer<'_>,
+        signature: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        crypto::verify_tls13_signature(
+            message,
+            certificate,
+            signature,
+            &self.provider.signature_verification_algorithms,
+        )
+    }
+}
+
+impl ServerCertVerifier for PeerCertificateVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, TlsError> {
+        if !intermediates.is_empty() {
+            return Err(TlsError::General(
+                "WiPad expects a single peer identity certificate".to_owned(),
             ));
         }
-
-        let mut ciphertext = [0_u8; MAX_FRAME_LENGTH];
-        match self.inner.write_message(plaintext, &mut ciphertext) {
-            Ok(length) if length > 0 && length <= MAX_FRAME_LENGTH => {
-                Ok(ciphertext[..length].to_vec())
-            }
-            Ok(_) => {
-                self.closed = true;
-                Err("Noise produced an invalid ciphertext length".to_owned())
-            }
-            Err(error) => {
-                self.closed = true;
-                Err(error.to_string())
-            }
-        }
+        self.validate(end_entity)?;
+        Ok(ServerCertVerified::assertion())
     }
 
-    /// Authenticates and decrypts one application record.
-    ///
-    /// Any malformed record or authentication failure poisons this transport;
-    /// callers must close the underlying connection and discard the session.
-    pub fn open(&mut self, ciphertext: &[u8]) -> Result<Vec<u8>, String> {
-        if self.closed {
-            return Err("Noise transport is closed".to_owned());
-        }
-        if ciphertext.len() <= AEAD_TAG_LENGTH || ciphertext.len() > MAX_FRAME_LENGTH {
-            self.closed = true;
-            return Err("Encrypted WiPad record has an invalid length".to_owned());
-        }
-
-        let mut plaintext = [0_u8; MAX_FRAME_LENGTH];
-        match self.inner.read_message(ciphertext, &mut plaintext) {
-            Ok(length) if length > 0 && length <= MAX_PLAINTEXT_LENGTH => {
-                Ok(plaintext[..length].to_vec())
-            }
-            Ok(_) => {
-                self.closed = true;
-                Err("Decrypted WiPad record has an invalid length".to_owned())
-            }
-            Err(error) => {
-                self.closed = true;
-                Err(error.to_string())
-            }
-        }
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _certificate: &CertificateDer<'_>,
+        _signature: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        Err(TlsError::General("WiPad only permits TLS 1.3".to_owned()))
     }
 
-    pub fn is_closed(&self) -> bool {
-        self.closed
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        certificate: &CertificateDer<'_>,
+        signature: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        self.verify_tls13(message, certificate, signature)
     }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![SignatureScheme::ECDSA_NISTP256_SHA256]
+    }
+}
+
+impl ClientCertVerifier for PeerCertificateVerifier {
+    fn offer_client_auth(&self) -> bool {
+        true
+    }
+
+    fn client_auth_mandatory(&self) -> bool {
+        true
+    }
+
+    fn root_hint_subjects(&self) -> &[DistinguishedName] {
+        &[]
+    }
+
+    fn verify_client_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        _now: UnixTime,
+    ) -> Result<ClientCertVerified, TlsError> {
+        if !intermediates.is_empty() {
+            return Err(TlsError::General(
+                "WiPad expects a single peer identity certificate".to_owned(),
+            ));
+        }
+        self.validate(end_entity)?;
+        Ok(ClientCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _certificate: &CertificateDer<'_>,
+        _signature: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        Err(TlsError::General("WiPad only permits TLS 1.3".to_owned()))
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        certificate: &CertificateDer<'_>,
+        signature: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        self.verify_tls13(message, certificate, signature)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![SignatureScheme::ECDSA_NISTP256_SHA256]
+    }
+}
+
+/// Builds the TLS 1.3 client configuration with mandatory client identity.
+///
+/// None is only for first-contact pairing. The TLS CertificateVerify signature
+/// is still checked against the P-256 certificate key. After the user approves
+/// the comparison string, supply the stored fingerprint on every reconnect.
+pub fn client_config(
+    identity: &TlsIdentity,
+    expected_server_fingerprint: Option<[u8; 32]>,
+) -> Result<ClientConfig, TlsError> {
+    let provider = tls_provider();
+    ClientConfig::builder_with_provider(provider)
+        .with_protocol_versions(&[&version::TLS13])?
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(PeerCertificateVerifier::new(
+            expected_server_fingerprint,
+        )))
+        .with_client_auth_cert(
+            vec![CertificateDer::from(identity.certificate_der.clone())],
+            identity.private_key_der(),
+        )
+}
+
+pub fn server_config(
+    identity: &TlsIdentity,
+    expected_client_fingerprint: Option<[u8; 32]>,
+) -> Result<ServerConfig, TlsError> {
+    let provider = tls_provider();
+    ServerConfig::builder_with_provider(provider)
+        .with_protocol_versions(&[&version::TLS13])?
+        .with_client_cert_verifier(Arc::new(PeerCertificateVerifier::new(
+            expected_client_fingerprint,
+        )))
+        .with_single_cert(
+            vec![CertificateDer::from(identity.certificate_der.clone())],
+            identity.private_key_der(),
+        )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn perform_xx_handshake() -> (EstablishedSession, EstablishedSession) {
-        let phone_identity = NoiseIdentity::generate().unwrap();
-        let desktop_identity = NoiseIdentity::generate().unwrap();
-
-        let mut phone = NoiseHandshake::new(&phone_identity, HandshakeRole::Initiator).unwrap();
-        let mut desktop = NoiseHandshake::new(&desktop_identity, HandshakeRole::Responder).unwrap();
-
-        let message_one = phone.write_message().unwrap();
-        desktop.read_message(&message_one).unwrap();
-
-        let message_two = desktop.write_message().unwrap();
-        phone.read_message(&message_two).unwrap();
-
-        let message_three = phone.write_message().unwrap();
-        desktop.read_message(&message_three).unwrap();
-
-        assert!(phone.is_finished());
-        assert!(desktop.is_finished());
-
-        (phone.finish().unwrap(), desktop.finish().unwrap())
+    fn temporary_directory(prefix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("{}-{}", prefix, Uuid::new_v4()))
     }
 
     #[test]
-    fn xx_handshake_authenticates_both_static_keys_and_derives_same_hash() {
-        let (phone, desktop) = perform_xx_handshake();
+    fn generated_identity_is_a_valid_p256_certificate() {
+        let identity = TlsIdentity::generate().unwrap();
 
-        assert_eq!(
-            phone.remote_static,
-            phone.transport.inner.get_remote_static().unwrap()
-        );
-        assert_eq!(
-            desktop.remote_static,
-            desktop.transport.inner.get_remote_static().unwrap()
-        );
-        assert_ne!(phone.remote_static, desktop.remote_static);
-        assert_eq!(phone.authentication_string, desktop.authentication_string);
-        assert_eq!(phone.authentication_string.len(), 14);
+        assert!(identity.certificate_der.len() <= MAX_CERTIFICATE_LENGTH);
+        assert!(validate_peer_certificate(&identity.certificate_der, None).is_ok());
+        assert_eq!(identity.fingerprint(), certificate_fingerprint(identity.certificate_der()));
     }
 
     #[test]
-    fn trust_evaluation_distinguishes_new_trusted_and_changed_keys() {
-        let (phone, desktop) = perform_xx_handshake();
+    fn identity_is_persisted_and_reloaded_without_changing_certificate() {
+        let directory = temporary_directory("wipad-tls-identity");
+        let path = directory.join("identity.tls");
 
-        assert_eq!(
-            evaluate_trust(None, &phone.remote_static),
-            TrustDecision::NeedsApproval
-        );
-        assert_eq!(
-            evaluate_trust(Some(&phone.remote_static), &phone.remote_static),
-            TrustDecision::Trusted
-        );
-        assert_eq!(
-            evaluate_trust(Some(&phone.remote_static), &desktop.remote_static),
-            TrustDecision::IdentityChanged
-        );
-    }
-
-    #[test]
-    fn transport_encrypts_authenticates_and_rejects_tampering() {
-        let (mut phone, mut desktop) = perform_xx_handshake();
-
-        let ciphertext = phone.transport.seal(b"controller-state").unwrap();
-        assert_ne!(&ciphertext, b"controller-state");
-        assert_eq!(
-            desktop.transport.open(&ciphertext).unwrap(),
-            b"controller-state"
-        );
-
-        let mut corrupted = phone.transport.seal(b"next-state").unwrap();
-        corrupted[0] ^= 0x80;
-
-        assert!(desktop.transport.open(&corrupted).is_err());
-        assert!(desktop.transport.is_closed());
-        assert!(desktop.transport.open(&corrupted).is_err());
-    }
-
-    #[test]
-    fn identity_is_persisted_with_restricted_permissions_and_reloaded() {
-        let directory = std::env::temp_dir().join(format!("wipad-identity-{}", Uuid::new_v4()));
-        let path = directory.join("identity.noise");
-
-        let first = NoiseIdentity::load_or_create(&path).unwrap();
-        let original_private = first.private_key.to_vec();
+        let first = TlsIdentity::load_or_create(&path).unwrap();
+        let certificate = first.certificate_der().to_vec();
+        let fingerprint = first.fingerprint();
         drop(first);
 
-        let second = NoiseIdentity::load_or_create(&path).unwrap();
-        assert_eq!(second.private_key.as_slice(), original_private.as_slice());
+        let second = TlsIdentity::load_or_create(&path).unwrap();
+        assert_eq!(second.certificate_der(), certificate);
+        assert_eq!(second.fingerprint(), fingerprint);
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-                0o600
-            );
+            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
         }
 
         fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
-    fn malformed_identity_is_not_silently_replaced() {
-        let directory =
-            std::env::temp_dir().join(format!("wipad-invalid-identity-{}", Uuid::new_v4()));
+    fn malformed_identity_file_is_rejected_not_replaced() {
+        let directory = temporary_directory("wipad-tls-invalid");
         fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("identity.noise");
-        fs::write(&path, b"not-a-wipad-identity").unwrap();
+        let path = directory.join("identity.tls");
+        fs::write(&path, b"not-a-wipad-tls-identity").unwrap();
 
-        let result = NoiseIdentity::load_or_create(&path);
+        let result = TlsIdentity::load_or_create(&path);
         assert!(matches!(
             result,
             Err(error) if error.kind() == io::ErrorKind::InvalidData
         ));
+        assert_eq!(fs::read(&path).unwrap(), b"not-a-wipad-tls-identity");
 
         fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
-    fn authentication_string_rejects_short_hashes() {
-        assert!(authentication_string(&[1, 2, 3, 4, 5]).is_err());
-    }
-
-    #[test]
-    fn trust_store_persists_explicit_approval_and_supports_revocation() {
-        let directory = std::env::temp_dir().join(format!("wipad-trust-{}", Uuid::new_v4()));
-        let store = TrustStore::new(directory.join("trusted-peer.noise"));
-        let peer_key = [0xA5_u8; 32];
+    fn trust_store_requires_explicit_write_and_supports_revocation() {
+        let directory = temporary_directory("wipad-tls-trust");
+        let store = TrustStore::new(directory.join("trusted-peer.sha256"));
+        let identity = TlsIdentity::generate().unwrap();
+        let fingerprint = identity.fingerprint();
 
         assert_eq!(store.load().unwrap(), None);
         assert_eq!(
-            store.decision(&peer_key).unwrap(),
+            store.decision(&fingerprint).unwrap(),
             TrustDecision::NeedsApproval
         );
 
-        store.store(&peer_key).unwrap();
-        assert_eq!(store.load().unwrap().unwrap(), peer_key.to_vec());
-        assert_eq!(store.decision(&peer_key).unwrap(), TrustDecision::Trusted);
-
-        let changed_key = [0x5A_u8; 32];
+        store.store(&fingerprint).unwrap();
+        assert_eq!(store.load().unwrap(), Some(fingerprint));
         assert_eq!(
-            store.decision(&changed_key).unwrap(),
-            TrustDecision::IdentityChanged
+            store.decision(&fingerprint).unwrap(),
+            TrustDecision::Trusted
         );
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                fs::metadata(&store.path).unwrap().permissions().mode() & 0o777,
-                0o600
-            );
-        }
+        let other = TlsIdentity::generate().unwrap().fingerprint();
+        assert_eq!(
+            store.decision(&other).unwrap(),
+            TrustDecision::IdentityChanged
+        );
 
         store.revoke().unwrap();
         assert_eq!(store.load().unwrap(), None);
@@ -663,31 +692,100 @@ mod tests {
     }
 
     #[test]
-    fn trust_store_rejects_malformed_records_without_replacing_them() {
-        let directory = std::env::temp_dir().join(format!("wipad-bad-trust-{}", Uuid::new_v4()));
-        fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("trusted-peer.noise");
-        fs::write(&path, b"bad-trust-record").unwrap();
-        let store = TrustStore::new(&path);
+    fn comparison_string_is_role_ordered_and_deterministic() {
+        let phone = TlsIdentity::generate().unwrap();
+        let desktop = TlsIdentity::generate().unwrap();
 
-        let result = store.load();
-        assert!(matches!(
-            result,
-            Err(error) if error.kind() == io::ErrorKind::InvalidData
-        ));
-        assert_eq!(fs::read(&path).unwrap(), b"bad-trust-record");
+        let first = pairing_string(phone.certificate_der(), desktop.certificate_der()).unwrap();
+        let second = pairing_string(phone.certificate_der(), desktop.certificate_der()).unwrap();
+        let reversed = pairing_string(desktop.certificate_der(), phone.certificate_der()).unwrap();
 
-        fs::remove_dir_all(directory).unwrap();
+        assert_eq!(first, second);
+        assert_ne!(first, reversed);
+        assert_eq!(first.len(), 14);
     }
 
     #[test]
-    fn trust_store_rejects_invalid_public_key_lengths() {
-        let directory = std::env::temp_dir().join(format!("wipad-short-trust-{}", Uuid::new_v4()));
-        let store = TrustStore::new(directory.join("trusted-peer.noise"));
+    fn loopback_session_uses_mutual_tls_13_and_pinned_peer_certificates() {
+        let phone = TlsIdentity::generate().unwrap();
+        let desktop = TlsIdentity::generate().unwrap();
 
-        assert_eq!(
-            store.store(&[0; 31]).unwrap_err().kind(),
-            io::ErrorKind::InvalidInput
-        );
+        let phone_pin = desktop.fingerprint();
+        let desktop_pin = phone.fingerprint();
+
+        let client = Arc::new(client_config(&phone, Some(phone_pin)).unwrap());
+        let server = Arc::new(server_config(&desktop, Some(desktop_pin)).unwrap());
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+
+        let server_thread = std::thread::spawn(move || {
+            let (tcp, _) = listener.accept().unwrap();
+            tcp.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            tcp.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
+
+            let connection = ServerConnection::new(server).unwrap();
+            let mut stream = rustls::StreamOwned::new(connection, tcp);
+
+            let mut request = [0_u8; 4];
+            stream.read_exact(&mut request).unwrap();
+            stream.write_all(b"pong").unwrap();
+            stream.flush().unwrap();
+
+            let peer_certificate = stream
+                .conn
+                .peer_certificates()
+                .unwrap()
+                .first()
+                .unwrap()
+                .as_ref()
+                .to_vec();
+            let protocol = stream.conn.protocol_version();
+
+            (request, peer_certificate, protocol)
+        });
+
+        let tcp = TcpStream::connect(address).unwrap();
+        tcp.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        tcp.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
+
+        let server_name = ServerName::try_from("wipad.local".to_owned()).unwrap();
+        let connection = ClientConnection::new(client, server_name).unwrap();
+        let mut stream = rustls::StreamOwned::new(connection, tcp);
+
+        stream.write_all(b"ping").unwrap();
+        stream.flush().unwrap();
+
+        let mut response = [0_u8; 4];
+        stream.read_exact(&mut response).unwrap();
+
+        let server_certificate = stream
+            .conn
+            .peer_certificates()
+            .unwrap()
+            .first()
+            .unwrap()
+            .as_ref()
+            .to_vec();
+        let client_protocol = stream.conn.protocol_version();
+
+        let (request, client_certificate, server_protocol) = server_thread.join().unwrap();
+
+        assert_eq!(&request, b"ping");
+        assert_eq!(&response, b"pong");
+        assert_eq!(client_certificate, phone.certificate_der());
+        assert_eq!(server_certificate, desktop.certificate_der());
+        assert_eq!(client_protocol, Some(ProtocolVersion::TLSv1_3));
+        assert_eq!(server_protocol, Some(ProtocolVersion::TLSv1_3));
+    }
+
+    #[test]
+    fn pinned_verifier_rejects_a_changed_certificate() {
+        let trusted = TlsIdentity::generate().unwrap();
+        let changed = TlsIdentity::generate().unwrap();
+        let verifier = PeerCertificateVerifier::new(Some(trusted.fingerprint()));
+        let certificate = CertificateDer::from(changed.certificate_der.clone());
+
+        assert!(verifier.validate(&certificate).is_err());
     }
 }
