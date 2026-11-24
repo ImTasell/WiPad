@@ -85,6 +85,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         activityStarted = false
+        discoveredDesktop = null
         pairingApprovals.cancelPending()
         discovery?.close()
         discovery = null
@@ -136,6 +137,19 @@ class MainActivity : ComponentActivity() {
             Thread.currentThread().interrupt()
         }
     }
+
+    private fun isTerminalPairingFailure(error: Throwable): Boolean =
+        generateSequence(error) { it.cause }.any { cause ->
+            val causeMessage = cause.message.orEmpty()
+            listOf(
+                "rejected",
+                "identity changed",
+                "certificate changed",
+                "incompatible",
+                "unsupported",
+                "trusted identity",
+            ).any { marker -> causeMessage.contains(marker, ignoreCase = true) }
+        }
 
     private fun onDesktopLost(serviceName: String) {
         if (discoveredDesktop?.serviceName != serviceName) return
@@ -205,11 +219,7 @@ class MainActivity : ComponentActivity() {
                         val message = error.message ?: error.javaClass.simpleName
                         runOnUiThread { desktopStatus = "Secure session unavailable · $message" }
 
-                        val terminalFailure = message.contains("rejected", ignoreCase = true)
-                            || message.contains("identity changed", ignoreCase = true)
-                            || message.contains("incompatible", ignoreCase = true)
-                            || message.contains("unsupported", ignoreCase = true)
-                        if (terminalFailure) break
+                        if (isTerminalPairingFailure(error)) break
                     }
 
                     if (activityStarted && !Thread.currentThread().isInterrupted) {
