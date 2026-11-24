@@ -112,7 +112,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn encodes_the_shared_phone_pairing_hello_vector() {
         let message = ApplicationMessage::PairingHello {
@@ -197,9 +196,7 @@ mod tests {
         };
         assert!(encode_application_message(&control_name).is_err());
     }
-
 }
-
 
 pub const PROTOCOL_MAJOR: u8 = 1;
 pub const PROTOCOL_MINOR: u8 = 0;
@@ -337,7 +334,9 @@ pub fn decode_application_message(payload: &[u8]) -> io::Result<ApplicationMessa
             }
 
             let display_name = std::str::from_utf8(&payload[5..])
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "display name is not UTF-8"))?
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "display name is not UTF-8")
+                })?
                 .to_owned();
             if display_name.chars().any(char::is_control) {
                 return Err(io::Error::new(
