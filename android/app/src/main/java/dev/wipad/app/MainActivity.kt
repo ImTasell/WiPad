@@ -120,7 +120,7 @@ class MainActivity : ComponentActivity() {
     fun forgetTrustedDesktop(): Boolean {
         pairingApprovals.cancelPending()
         val sockets = synchronized(trustRevisionLock) {
-            trustRevision = trustRevision.wrappingIncrement()
+            trustRevision += 1
             val active = phoneSession
             phoneSession = null
             val connecting = connectingSocket
@@ -200,7 +200,9 @@ class MainActivity : ComponentActivity() {
                             address = endpoint.address,
                             port = endpoint.port,
                             displayName = "WiPad Phone",
-                            onSocketCreated = { connectingSocket = it },
+                            onSocketCreated = { socket ->
+                                synchronized(trustRevisionLock) { connectingSocket = socket }
+                            },
                         ) { request ->
                             pairingApprovals.requestApproval(request)
                         }
