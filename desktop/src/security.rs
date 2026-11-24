@@ -287,6 +287,133 @@ pub fn evaluate_trust(trusted: Option<&[u8]>, observed: &[u8]) -> TrustDecision 
     }
 }
 
+
+const TRUST_MAGIC: &[u8; 5] = b"WIPT\x01";
+
+/// Persistent trust record for the single paired peer.
+///
+/// The record contains only the peer's 32-byte public static key. Calling
+/// store is the explicit approval boundary; discovery and handshake code
+/// must not call it automatically.
+pub struct TrustStore {
+    path: PathBuf,
+}
+
+impl TrustStore {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    pub fn default_path() -> io::Result<PathBuf> {
+        let config_root = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no user config directory"))?;
+
+        Ok(config_root.join("wipad").join("trusted-peer.noise"))
+    }
+
+    pub fn load(&self) -> io::Result<Option<Vec<u8>>> {
+        let metadata = match fs::symlink_metadata(&self.path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "WiPad trust path must be a regular file, not a symlink",
+            ));
+        }
+
+        let mut file = File::open(&self.path)?;
+        let mut bytes = Vec::with_capacity(TRUST_MAGIC.len() + PRIVATE_KEY_LENGTH);
+        file.read_to_end(&mut bytes)?;
+
+        if bytes.len() != TRUST_MAGIC.len() + PRIVATE_KEY_LENGTH
+            || &bytes[..TRUST_MAGIC.len()] != TRUST_MAGIC
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "WiPad trust record has an unsupported format or invalid length",
+            ));
+        }
+
+        Ok(Some(bytes[TRUST_MAGIC.len()..].to_vec()))
+    }
+
+    /// Persists a peer key after the user approves the first-contact pairing.
+    pub fn store(&self, peer_public_key: &[u8]) -> io::Result<()> {
+        if peer_public_key.len() != PRIVATE_KEY_LENGTH {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "WiPad peer public key must be exactly 32 bytes",
+            ));
+        }
+
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let file_name = self
+            .path
+            .file_name()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid trust path"))?
+            .to_string_lossy();
+        let temporary_path = self
+            .path
+            .with_file_name(format!("{file_name}.tmp-{}", Uuid::new_v4()));
+
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+
+        let mut file = options.open(&temporary_path)?;
+        let result = file
+            .write_all(TRUST_MAGIC)
+            .and_then(|()| file.write_all(peer_public_key))
+            .and_then(|()| file.sync_all());
+
+        if let Err(error) = result {
+            drop(file);
+            let _ = fs::remove_file(&temporary_path);
+            return Err(error);
+        }
+        drop(file);
+
+        if let Err(error) = fs::rename(&temporary_path, &self.path) {
+            let _ = fs::remove_file(&temporary_path);
+            return Err(error);
+        }
+
+        if let Some(parent) = self.path.parent() {
+            if let Ok(directory) = File::open(parent) {
+                directory.sync_all()?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn decision(&self, observed: &[u8]) -> io::Result<TrustDecision> {
+        let trusted = self.load()?;
+        Ok(evaluate_trust(trusted.as_deref(), observed))
+    }
+
+    pub fn revoke(&self) -> io::Result<()> {
+        match fs::remove_file(&self.path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+}
+
 /// Creates a 48-bit comparison string from the symmetric Noise handshake hash.
 ///
 /// The value is for visual comparison on both devices, not a secret or a PIN.
@@ -499,4 +626,73 @@ mod tests {
     fn authentication_string_rejects_short_hashes() {
         assert!(authentication_string(&[1, 2, 3, 4, 5]).is_err());
     }
+
+    #[test]
+    fn trust_store_persists_explicit_approval_and_supports_revocation() {
+        let directory = std::env::temp_dir().join(format!("wipad-trust-{}", Uuid::new_v4()));
+        let store = TrustStore::new(directory.join("trusted-peer.noise"));
+        let peer_key = [0xA5_u8; 32];
+
+        assert_eq!(store.load().unwrap(), None);
+        assert_eq!(
+            store.decision(&peer_key).unwrap(),
+            TrustDecision::NeedsApproval
+        );
+
+        store.store(&peer_key).unwrap();
+        assert_eq!(store.load().unwrap().unwrap(), peer_key);
+        assert_eq!(
+            store.decision(&peer_key).unwrap(),
+            TrustDecision::Trusted
+        );
+
+        let changed_key = [0x5A_u8; 32];
+        assert_eq!(
+            store.decision(&changed_key).unwrap(),
+            TrustDecision::IdentityChanged
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(store.path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+
+        store.revoke().unwrap();
+        assert_eq!(store.load().unwrap(), None);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn trust_store_rejects_malformed_records_without_replacing_them() {
+        let directory = std::env::temp_dir().join(format!("wipad-bad-trust-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("trusted-peer.noise");
+        fs::write(&path, b"bad-trust-record").unwrap();
+        let store = TrustStore::new(&path);
+
+        let result = store.load();
+        assert!(matches!(
+            result,
+            Err(error) if error.kind() == io::ErrorKind::InvalidData
+        ));
+        assert_eq!(fs::read(&path).unwrap(), b"bad-trust-record");
+
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn trust_store_rejects_invalid_public_key_lengths() {
+        let directory = std::env::temp_dir().join(format!("wipad-short-trust-{}", Uuid::new_v4()));
+        let store = TrustStore::new(directory.join("trusted-peer.noise"));
+
+        assert_eq!(
+            store.store(&[0; 31]).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+    }
+
 }
