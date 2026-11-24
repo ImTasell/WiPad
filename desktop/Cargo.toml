@@ -1,0 +1,13 @@
+[package]
+name = "wipad-desktop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+build = "build.rs"
+
+[dependencies]
+slint = "1.19.0"
+
+[build-dependencies]
+slint-build = "1.19.0"
