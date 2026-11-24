@@ -236,7 +236,10 @@ mod tests {
             io::ErrorKind::WouldBlock
         );
         assert!(decoder.has_partial_frame());
-        assert_eq!(decoder.read_next(&mut reader).unwrap().unwrap(), frame_payload());
+        assert_eq!(
+            decoder.read_next(&mut reader).unwrap().unwrap(),
+            frame_payload()
+        );
         assert!(!decoder.has_partial_frame());
         assert_eq!(decoder.read_next(&mut reader).unwrap(), None);
     }
@@ -283,7 +286,10 @@ mod tests {
             io::ErrorKind::TimedOut
         );
         assert!(decoder.has_partial_frame());
-        assert_eq!(decoder.read_next(&mut reader).unwrap().unwrap(), frame_payload());
+        assert_eq!(
+            decoder.read_next(&mut reader).unwrap().unwrap(),
+            frame_payload()
+        );
         assert!(!decoder.has_partial_frame());
     }
 
