@@ -125,13 +125,15 @@ mod tests {
     const GOLDEN_VECTORS: &str = include_str!("../../protocol/golden-vectors.txt");
 
     fn golden_vector(name: &str) -> Vec<u8> {
-        let hex = GOLDEN_VECTORS.lines()
+        let hex = GOLDEN_VECTORS
+            .lines()
             .filter_map(|line| line.split_once('='))
             .find_map(|(key, value)| (key == name).then_some(value.trim()))
             .unwrap_or_else(|| panic!("missing golden vector: {name}"));
-        hex.as_bytes().chunks_exact(2).map(|pair| {
-            u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap()
-        }).collect()
+        hex.as_bytes()
+            .chunks_exact(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect()
     }
 
     #[test]
