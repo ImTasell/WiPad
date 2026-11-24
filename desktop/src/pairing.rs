@@ -59,9 +59,7 @@ impl PairingApprovalBroker {
 
     pub fn decide(&self, approved: bool) -> bool {
         let (lock, changed) = &*self.inner;
-        let mut state = lock
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let Some(pending) = state.pending.as_mut() else {
             return false;
         };
@@ -186,7 +184,7 @@ where
             && role == expected_peer_role(local_role) =>
         {
             display_name
-        },
+        }
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
