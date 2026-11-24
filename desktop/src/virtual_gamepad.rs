@@ -117,12 +117,36 @@ fn state_events(state: &ControllerState) -> io::Result<Vec<(u16, u16, i32)>> {
     }
 
     events.extend([
-        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_X.0, state.left_x as i32),
-        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_Y.0, state.left_y as i32),
-        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_RX.0, state.right_x as i32),
-        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_RY.0, state.right_y as i32),
-        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_Z.0, state.left_trigger as i32),
-        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_RZ.0, state.right_trigger as i32),
+        (
+            EventType::ABSOLUTE.0,
+            AbsoluteAxisCode::ABS_X.0,
+            state.left_x as i32,
+        ),
+        (
+            EventType::ABSOLUTE.0,
+            AbsoluteAxisCode::ABS_Y.0,
+            state.left_y as i32,
+        ),
+        (
+            EventType::ABSOLUTE.0,
+            AbsoluteAxisCode::ABS_RX.0,
+            state.right_x as i32,
+        ),
+        (
+            EventType::ABSOLUTE.0,
+            AbsoluteAxisCode::ABS_RY.0,
+            state.right_y as i32,
+        ),
+        (
+            EventType::ABSOLUTE.0,
+            AbsoluteAxisCode::ABS_Z.0,
+            state.left_trigger as i32,
+        ),
+        (
+            EventType::ABSOLUTE.0,
+            AbsoluteAxisCode::ABS_RZ.0,
+            state.right_trigger as i32,
+        ),
         (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_HAT0X.0, hat_x),
         (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_HAT0Y.0, hat_y),
     ]);
@@ -154,7 +178,7 @@ mod tests {
 
     #[test]
     fn complete_snapshots_emit_every_button_and_axis() {
-        use crate::controller::{BUTTON_SOUTH, BUTTON_RIGHT_BUMPER};
+        use crate::controller::{BUTTON_RIGHT_BUMPER, BUTTON_SOUTH};
 
         let state = ControllerState {
             sequence: 7,
@@ -188,7 +212,11 @@ mod tests {
         );
         assert_eq!(
             events[BUTTON_MAPPING.len() + 5],
-            (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_RZ.0, u16::MAX as i32)
+            (
+                EventType::ABSOLUTE.0,
+                AbsoluteAxisCode::ABS_RZ.0,
+                u16::MAX as i32
+            )
         );
         assert_eq!(
             events[BUTTON_MAPPING.len() + 6],
