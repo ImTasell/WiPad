@@ -176,6 +176,7 @@ class MainActivity : ComponentActivity() {
         inputThread?.interrupt()
         val worker = Thread({
             var sequence = inputSequence.get()
+            var lastControllerConnected: Boolean? = null
             try {
                 while (
                     activityStarted
@@ -183,6 +184,18 @@ class MainActivity : ComponentActivity() {
                     && !Thread.currentThread().isInterrupted
                 ) {
                     controllerInput.refreshDevices()
+                    val controllerConnected = controllerInput.isConnected()
+                    if (lastControllerConnected != controllerConnected) {
+                        session.sendControllerStatus(controllerConnected)
+                        lastControllerConnected = controllerConnected
+                        runOnUiThread {
+                            desktopStatus = if (controllerConnected) {
+                                "Controller connected · streaming input"
+                            } else {
+                                "No controller connected · waiting for Bluetooth gamepad"
+                            }
+                        }
+                    }
                     sequence += 1
                     val snapshot = controllerInput.snapshot(
                         sequence = sequence,
