@@ -1,5 +1,7 @@
 use std::io::{self, Read, Write};
 
+use crate::controller::ControllerState;
+
 /// Maximum payload size for one WiPad TCP frame.
 pub const MAX_FRAME_LENGTH: usize = 4 * 1024;
 
@@ -143,6 +145,32 @@ mod tests {
     }
 
     #[test]
+    fn encodes_and_decodes_controller_input_state() {
+        use crate::controller::{BUTTON_NORTH, BUTTON_SOUTH, ControllerState};
+
+        let state = ControllerState {
+            sequence: 1,
+            sample_time_micros: 2,
+            buttons: BUTTON_SOUTH | BUTTON_NORTH,
+            hat: 0,
+            left_x: 0x1234,
+            left_y: -2,
+            right_x: 0,
+            right_y: i16::MIN,
+            left_trigger: u16::MAX,
+            right_trigger: 0,
+        };
+        let message = ApplicationMessage::InputState(state);
+        let expected = [
+            0x10, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 9, 0,
+            0x12, 0x34, 0xff, 0xfe, 0, 0, 0x80, 0, 0xff, 0xff, 0, 0,
+        ];
+
+        assert_eq!(encode_application_message(&message).unwrap(), expected);
+        assert_eq!(decode_application_message(&expected).unwrap(), message);
+    }
+
+    #[test]
     fn encodes_and_decodes_pairing_decisions_and_session_ready() {
         for approved in [false, true] {
             let message = ApplicationMessage::PairingDecision { approved };
@@ -205,6 +233,7 @@ pub const MAX_DISPLAY_NAME_LENGTH: usize = 64;
 const MESSAGE_PAIRING_HELLO: u8 = 0x01;
 const MESSAGE_PAIRING_DECISION: u8 = 0x02;
 const MESSAGE_SESSION_READY: u8 = 0x03;
+const MESSAGE_INPUT_STATE: u8 = crate::controller::MESSAGE_INPUT_STATE;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PeerRole {
@@ -244,6 +273,7 @@ pub enum ApplicationMessage {
         approved: bool,
     },
     SessionReady,
+    InputState(ControllerState),
 }
 
 pub fn encode_application_message(message: &ApplicationMessage) -> io::Result<Vec<u8>> {
@@ -276,6 +306,7 @@ pub fn encode_application_message(message: &ApplicationMessage) -> io::Result<Ve
             payload.push(name.len() as u8);
             payload.extend_from_slice(name);
         }
+        ApplicationMessage::InputState(state) => return state.encode_payload(),
         ApplicationMessage::PairingDecision { approved } => {
             payload.push(MESSAGE_PAIRING_DECISION);
             payload.push(u8::from(*approved));
@@ -352,6 +383,9 @@ pub fn decode_application_message(payload: &[u8]) -> io::Result<ApplicationMessa
                 display_name,
             })
         }
+        MESSAGE_INPUT_STATE => Ok(ApplicationMessage::InputState(
+            ControllerState::decode_payload(payload)?,
+        )),
         MESSAGE_PAIRING_DECISION => {
             if payload.len() != 2 || payload[1] > 1 {
                 return Err(io::Error::new(
