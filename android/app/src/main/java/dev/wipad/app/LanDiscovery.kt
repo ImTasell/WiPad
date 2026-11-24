@@ -111,11 +111,12 @@ class LanDiscovery(
                         resolvingServices.add(serviceKey)
                     }
                     try {
-                            nsd.resolveService(service, object : NsdManager.ResolveListener {
+                        nsd.resolveService(service, object : NsdManager.ResolveListener {
                                 override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) {
                                     synchronized(resolvingServices) {
                                         resolvingServices.remove(serviceKey)
                                         discoveredServices.remove(serviceKey)
+                                        resolvedServices.remove(serviceKey)
                                     }
                                     if (!closed) onStatus("Found desktop · resolving failed ($errorCode)")
                                 }
@@ -128,6 +129,10 @@ class LanDiscovery(
                                     val host = info.host
                                     val port = info.port
                                     if (host == null || port !in 1..65535) {
+                                        synchronized(resolvingServices) {
+                                            discoveredServices.remove(serviceKey)
+                                            resolvedServices.remove(serviceKey)
+                                        }
                                         onStatus("Desktop found · endpoint is invalid")
                                         return
                                     }
@@ -135,9 +140,12 @@ class LanDiscovery(
                                     onStatus("Desktop found · ${info.serviceName} · ${host.hostAddress}")
                                     onDesktopResolved(host, port, info.serviceName)
                                 }
-                            })
+                        })
                     } catch (_: IllegalArgumentException) {
-                        synchronized(resolvingServices) { resolvingServices.remove(serviceKey) }
+                        synchronized(resolvingServices) {
+                            resolvingServices.remove(serviceKey)
+                            discoveredServices.remove(serviceKey)
+                        }
                     }
                 }
                 override fun onServiceLost(service: NsdServiceInfo) {
@@ -212,7 +220,6 @@ class LanDiscovery(
         val listener = discovery ?: return
         synchronized(resolvingServices) {
             discoveredServices.clear()
-            discoveredServices.clear()
             resolvingServices.clear()
             resolvedServices.clear()
         }
@@ -231,6 +238,7 @@ class LanDiscovery(
         networkCallback?.let { runCatching { connectivity.unregisterNetworkCallback(it) } }
         networkCallback = null
         synchronized(resolvingServices) {
+            discoveredServices.clear()
             resolvingServices.clear()
             resolvedServices.clear()
         }
