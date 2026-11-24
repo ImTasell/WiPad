@@ -6,6 +6,8 @@ import java.net.InetAddress
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLSocket
 
+private const val HEARTBEAT_TIMEOUT_MILLIS = 7_000
+
 internal data class PairingPrompt(
     val peerDisplayName: String,
     val comparisonString: String,
@@ -190,6 +192,5 @@ internal class TlsPairingClient(
 
     companion object {
         private const val PAIRING_READ_TIMEOUT_MILLIS = 120_000
-        private const val HEARTBEAT_TIMEOUT_MILLIS = 7_000
     }
 }
