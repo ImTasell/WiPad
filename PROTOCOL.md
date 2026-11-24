@@ -202,6 +202,8 @@ This allows the receiver to recover from a lost update without replaying an even
 
 ### 8.2 Required fields
 
+The byte-level version 0.1 payload, exact button assignments, hat encoding, and shared test vector are specified in [docs/CONTROLLER_STATE.md](docs/CONTROLLER_STATE.md). The message type is `INPUT_STATE` (`0x10`), with a 64-bit sequence, 64-bit session-relative sample time, a 32-bit button bitset, an 8-way hat, four signed 16-bit stick axes, and two unsigned 16-bit trigger values.
+
 The initial controller-state model contains:
 
 | Field | Meaning |
