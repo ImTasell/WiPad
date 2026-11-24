@@ -1,0 +1,42 @@
+name: Desktop
+
+on:
+  push:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop.yml"
+  pull_request:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Check formatting
+        working-directory: desktop
+        run: cargo fmt --all -- --check
+      - name: Run tests
+        working-directory: desktop
+        run: cargo test --locked
+      - name: Run Clippy
+        working-directory: desktop
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Build
+        working-directory: desktop
+        run: cargo build --locked
