@@ -1,25 +1,31 @@
 package dev.wipad.app
 
+import java.io.File
 import java.io.IOException
 
 /**
  * Reads the repository-wide protocol fixtures shared with the Rust test suite.
+ *
+ * Gradle's Android unit-test worker normally runs from android/app; the
+ * additional candidates also support invocation from the repository root.
  */
 internal object GoldenVectors {
     private val entries: Map<String, String> by lazy {
-        val stream = checkNotNull(
-            GoldenVectors::class.java.getResourceAsStream("/golden-vectors.txt"),
-        ) { "golden-vectors.txt was not added to the Android test resources" }
+        val fixture = listOf(
+            File("protocol/golden-vectors.txt"),
+            File("../../protocol/golden-vectors.txt"),
+            File("../protocol/golden-vectors.txt"),
+        ).firstOrNull(File::isFile)
+            ?: throw IllegalStateException("Could not locate protocol/golden-vectors.txt")
 
-        stream.bufferedReader(Charsets.UTF_8).useLines { lines ->
-            lines.map(String::trim)
-                .filter { it.isNotEmpty() && !it.startsWith("#") }
-                .associate { line ->
-                    val separator = line.indexOf('=')
-                    require(separator > 0) { "Malformed golden vector: $line" }
-                    line.substring(0, separator) to line.substring(separator + 1)
-                }
-        }
+        fixture.readText(Charsets.UTF_8).lineSequence()
+            .map(String::trim)
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+            .associate { line ->
+                val separator = line.indexOf('=')
+                require(separator > 0) { "Malformed golden vector: $line" }
+                line.substring(0, separator) to line.substring(separator + 1)
+            }
     }
 
     fun bytes(name: String): ByteArray {
