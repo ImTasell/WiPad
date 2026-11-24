@@ -280,6 +280,26 @@ fn receive_controller_stream<S: Read + Write>(
             return Ok(());
         }
 
+        if let Some((_, sent_at)) = awaiting_pong {
+            if sent_at.elapsed() >= Duration::from_secs(7) {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "phone heartbeat timed out",
+                ));
+            }
+        } else if last_ping.elapsed() >= Duration::from_secs(2) {
+            write_application_message(
+                stream,
+                &ApplicationMessage::Ping {
+                    nonce: heartbeat_nonce,
+                },
+            )?;
+            stream.flush()?;
+            awaiting_pong = Some((heartbeat_nonce, Instant::now()));
+            heartbeat_nonce = heartbeat_nonce.wrapping_add(1).max(1);
+            last_ping = Instant::now();
+        }
+
         match decoder.read_next(stream) {
             Ok(Some(frame)) => match decode_application_message(&frame)? {
                 ApplicationMessage::InputState(state) => {
@@ -339,26 +359,6 @@ fn receive_controller_stream<S: Read + Write>(
                 if !controls_released && input_idle >= Duration::from_secs(2) {
                     gamepad.release_all()?;
                     controls_released = true;
-                }
-
-                if let Some((_, sent_at)) = awaiting_pong {
-                    if sent_at.elapsed() >= Duration::from_secs(7) {
-                        return Err(io::Error::new(
-                            io::ErrorKind::TimedOut,
-                            "phone heartbeat timed out",
-                        ));
-                    }
-                } else if last_ping.elapsed() >= Duration::from_secs(2) {
-                    write_application_message(
-                        stream,
-                        &ApplicationMessage::Ping {
-                            nonce: heartbeat_nonce,
-                        },
-                    )?;
-                    stream.flush()?;
-                    awaiting_pong = Some((heartbeat_nonce, Instant::now()));
-                    heartbeat_nonce = heartbeat_nonce.wrapping_add(1).max(1);
-                    last_ping = Instant::now();
                 }
 
                 // A trusted peer that stops sending snapshots is no longer a
