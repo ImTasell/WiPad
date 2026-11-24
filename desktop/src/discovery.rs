@@ -139,37 +139,6 @@ fn is_compatible_phone(protocol_versions: Option<&str>, role: Option<&str>) -> b
         })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::is_compatible_phone;
-
-    #[test]
-    fn accepts_a_phone_with_a_supported_major_version() {
-        assert!(is_compatible_phone(Some("1"), Some("phone")));
-    }
-
-    #[test]
-    fn accepts_a_supported_version_in_a_version_list() {
-        assert!(is_compatible_phone(Some("2, 1, 3"), Some("phone")));
-    }
-
-    #[test]
-    fn rejects_an_unsupported_version() {
-        assert!(!is_compatible_phone(Some("2"), Some("phone")));
-    }
-
-    #[test]
-    fn rejects_a_different_role() {
-        assert!(!is_compatible_phone(Some("1"), Some("desktop")));
-    }
-
-    #[test]
-    fn rejects_missing_metadata() {
-        assert!(!is_compatible_phone(None, Some("phone")));
-        assert!(!is_compatible_phone(Some("1"), None));
-    }
-}
-
 fn select_local_ipv4() -> io::Result<std::net::Ipv4Addr> {
     let socket = UdpSocket::bind(("0.0.0.0", 0))?;
     socket.connect(("224.0.0.251", 5353))?;
@@ -211,5 +180,36 @@ fn load_or_create_installation_id() -> io::Result<String> {
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid installation ID"))
         }
         Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_compatible_phone;
+
+    #[test]
+    fn accepts_a_phone_with_a_supported_major_version() {
+        assert!(is_compatible_phone(Some("1"), Some("phone")));
+    }
+
+    #[test]
+    fn accepts_a_supported_version_in_a_version_list() {
+        assert!(is_compatible_phone(Some("2, 1, 3"), Some("phone")));
+    }
+
+    #[test]
+    fn rejects_an_unsupported_version() {
+        assert!(!is_compatible_phone(Some("2"), Some("phone")));
+    }
+
+    #[test]
+    fn rejects_a_different_role() {
+        assert!(!is_compatible_phone(Some("1"), Some("desktop")));
+    }
+
+    #[test]
+    fn rejects_missing_metadata() {
+        assert!(!is_compatible_phone(None, Some("phone")));
+        assert!(!is_compatible_phone(Some("1"), None));
     }
 }
