@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "android/**"
+      - "protocol/**"
       - "*.gradle.kts"
       - "gradle.properties"
       - ".github/workflows/android.yml"
