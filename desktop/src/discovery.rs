@@ -1,7 +1,12 @@
 use mdns_sd::{RecvTimeoutError, ServiceDaemon, ServiceEvent, ServiceInfo};
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
-use std::net::{IpAddr, TcpListener, UdpSocket};
+use std::io::{self, Read, Write};
+use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
+use rustls::{ServerConnection, StreamOwned};
+
+use crate::pairing::{PairingRequest, perform_pairing};
+use crate::protocol::PeerRole;
+use crate::security::{TlsIdentity, TrustDecision, TrustStore, certificate_fingerprint, server_config};
 use std::path::PathBuf;
 use std::sync::{
     Arc,
@@ -22,12 +27,21 @@ pub struct Discovery {
 }
 
 impl Discovery {
-    pub fn start(on_status: impl Fn(String) + Send + Sync + 'static) -> Result<Self, String> {
+    pub fn start(
+        on_status: impl Fn(String) + Send + Sync + 'static,
+        approve_peer: impl Fn(&PairingRequest) -> bool + Send + Sync + 'static,
+    ) -> Result<Self, String> {
         let stop = Arc::new(AtomicBool::new(false));
         let daemon = ServiceDaemon::new().map_err(|error| error.to_string())?;
         let local_ip = select_local_ipv4().map_err(|error| error.to_string())?;
         let installation_id =
             load_or_create_installation_id().map_err(|error| error.to_string())?;
+        let identity_path = TlsIdentity::default_path().map_err(|error| error.to_string())?;
+        let identity = Arc::new(
+            TlsIdentity::load_or_create(identity_path).map_err(|error| error.to_string())?,
+        );
+        let trust_store_path = TrustStore::default_path().map_err(|error| error.to_string())?;
+        let trust_store = Arc::new(TrustStore::new(trust_store_path));
 
         let properties = [
             ("pv", PROTOCOL_MAJOR),
@@ -55,13 +69,33 @@ impl Discovery {
             .set_nonblocking(true)
             .map_err(|error| error.to_string())?;
 
-        let listener_stop = Arc::clone(&stop);
+        let endpoint_stop = Arc::clone(&stop);
+        let endpoint_status = Arc::new(on_status);
+        let approval_callback = Arc::new(approve_peer);
+        let endpoint_identity = Arc::clone(&identity);
+        let endpoint_trust_store = Arc::clone(&trust_store);
+        let worker_status = Arc::clone(&endpoint_status);
+
         thread::Builder::new()
-            .name("wipad-endpoint".into())
+            .name("wipad-tls-endpoint".into())
             .spawn(move || {
-                while !listener_stop.load(Ordering::Relaxed) {
+                while !endpoint_stop.load(Ordering::Relaxed) {
                     match listener.accept() {
-                        Ok((stream, _)) => drop(stream),
+                        Ok((stream, remote_address)) => {
+                            let result = serve_phone(
+                                stream,
+                                &endpoint_identity,
+                                &endpoint_trust_store,
+                                &*worker_status,
+                                &*approval_callback,
+                                &endpoint_stop,
+                            );
+                            if let Err(error) = result {
+                                worker_status(format!(
+                                    "Phone session ended · {remote_address} · {error}"
+                                ));
+                            }
+                        }
                         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                             thread::sleep(Duration::from_millis(40));
                         }
@@ -74,7 +108,7 @@ impl Discovery {
         let receiver = daemon
             .browse(PHONE_SERVICE)
             .map_err(|error| error.to_string())?;
-        let callback = Arc::new(on_status);
+        let callback = Arc::clone(&endpoint_status);
         let browse_stop = Arc::clone(&stop);
 
         thread::Builder::new()
@@ -127,6 +161,110 @@ impl Drop for Discovery {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         let _ = self.daemon.shutdown();
+    }
+}
+
+fn serve_phone<FStatus, FApprove>(
+    socket: TcpStream,
+    identity: &TlsIdentity,
+    trust_store: &TrustStore,
+    on_status: &FStatus,
+    approve_peer: &FApprove,
+    stop: &AtomicBool,
+) -> io::Result<()>
+where
+    FStatus: Fn(String),
+    FApprove: Fn(&PairingRequest) -> bool,
+{
+    socket.set_nodelay(true)?;
+    socket.set_read_timeout(Some(Duration::from_secs(30)))?;
+    socket.set_write_timeout(Some(Duration::from_secs(10)))?;
+
+    // Reload the pin for every connection. A first pairing writes the pin only
+    // after both users approve, so the next TLS handshake is pinned automatically.
+    let expected_phone_fingerprint = trust_store.load()?;
+    let config = Arc::new(
+        server_config(identity, expected_phone_fingerprint)
+            .map_err(|error| io::Error::other(error.to_string()))?,
+    );
+    let connection = ServerConnection::new(config)
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    let mut tls = StreamOwned::new(connection, socket);
+
+    while tls.conn.is_handshaking() {
+        tls.conn.complete_io(&mut tls.sock)?;
+    }
+
+    let peer_certificate = tls
+        .conn
+        .peer_certificates()
+        .and_then(|certificates| certificates.first())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::PermissionDenied, "phone identity is missing"))?
+        .as_ref()
+        .to_vec();
+    let peer_fingerprint = certificate_fingerprint(&peer_certificate);
+
+    match trust_store.decision(&peer_fingerprint)? {
+        TrustDecision::Trusted => on_status("Trusted phone authenticated · checking approval".to_owned()),
+        TrustDecision::NeedsApproval => on_status("New phone authenticated · pairing approval required".to_owned()),
+        TrustDecision::IdentityChanged => {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "phone identity changed; revoke the old trust pin before pairing again",
+            ));
+        }
+    }
+
+    let pairing = perform_pairing(
+        &mut tls,
+        PeerRole::Desktop,
+        "WiPad Desktop",
+        identity.certificate_der(),
+        &peer_certificate,
+        trust_store,
+        |request| {
+            on_status(format!(
+                "Pairing approval required · {} · {}",
+                request.peer_display_name, request.comparison_string
+            ));
+            approve_peer(request)
+        },
+    )?;
+
+    on_status(format!(
+        "Secure session ready · {} · {}",
+        pairing.peer_display_name, pairing.comparison_string
+    ));
+
+    // Keep the authenticated channel alive. The controller message loop will
+    // replace this idle wait once INPUT_STATE and liveness messages are wired.
+    socket_read_loop(&mut tls, stop)?;
+    on_status("Phone disconnected · scanning for phone".to_owned());
+    Ok(())
+}
+
+fn socket_read_loop<S: Read>(stream: &mut S, stop: &AtomicBool) -> io::Result<()> {
+    let mut byte = [0_u8; 1];
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        match stream.read(&mut byte) {
+            Ok(0) => return Ok(()),
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "received application data before the controller stream was enabled",
+                ));
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) => {}
+            Err(error) => return Err(error),
+        }
     }
 }
 
