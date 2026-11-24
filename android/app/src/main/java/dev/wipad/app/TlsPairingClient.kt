@@ -43,6 +43,26 @@ internal class PhoneSession(
         )
     }
 
+    /**
+     * Owns the session read direction. The desktop sends periodic PING frames;
+     * a timeout or unexpected message is a dead/invalid session.
+     */
+    fun respondToHeartbeats() {
+        socket.soTimeout = HEARTBEAT_TIMEOUT_MILLIS
+        while (!socket.isClosed && !Thread.currentThread().isInterrupted) {
+            val message = ApplicationMessageCodec.decode(FrameCodec.readFrame(socket.inputStream))
+            when (message) {
+                is ApplicationMessage.Ping -> {
+                    FrameCodec.writeFrame(
+                        socket.outputStream,
+                        ApplicationMessageCodec.encode(ApplicationMessage.Pong(message.nonce)),
+                    )
+                }
+                else -> throw IOException("Desktop sent an invalid heartbeat-session message")
+            }
+        }
+    }
+
     @Synchronized
     override fun close() = socket.close()
 }
