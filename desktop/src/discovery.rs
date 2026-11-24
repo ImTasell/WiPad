@@ -5,7 +5,9 @@ use std::io::{self, Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
 
 use crate::pairing::{PairingRequest, perform_pairing};
-use crate::protocol::PeerRole;
+use crate::controller::InputSequenceTracker;
+use crate::protocol::{ApplicationMessage, FrameReader, PeerRole, decode_application_message};
+use crate::virtual_gamepad::VirtualGamepad;
 use crate::security::{
     TlsIdentity, TrustDecision, TrustStore, certificate_fingerprint, server_config,
 };
@@ -15,7 +17,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 const DESKTOP_SERVICE: &str = "_wipad-desktop._tcp.local.";
@@ -244,33 +246,60 @@ where
         pairing.peer_display_name, pairing.comparison_string
     ));
 
-    // Keep the authenticated channel alive. The controller message loop will
-    // replace this idle wait once INPUT_STATE and liveness messages are wired.
-    socket_read_loop(&mut tls, stop)?;
+    // Only create the virtual device after both peers have completed pairing.
+    tls.sock.set_read_timeout(Some(Duration::from_millis(250)))?;
+    receive_controller_stream(&mut tls, stop)?;
     on_status("Phone disconnected · scanning for phone".to_owned());
     Ok(())
 }
 
-fn socket_read_loop<S: Read>(stream: &mut S, stop: &AtomicBool) -> io::Result<()> {
-    let mut byte = [0_u8; 1];
+fn receive_controller_stream<S: Read>(stream: &mut S, stop: &AtomicBool) -> io::Result<()> {
+    let mut decoder = FrameReader::new();
+    let mut sequence = InputSequenceTracker::default();
+    let mut gamepad = VirtualGamepad::create()?;
+    gamepad.release_all()?;
+
+    let mut last_input = Instant::now();
+    let mut controls_released = true;
+
     loop {
         if stop.load(Ordering::Relaxed) {
+            gamepad.release_all()?;
             return Ok(());
         }
 
-        match stream.read(&mut byte) {
-            Ok(0) => return Ok(()),
-            Ok(_) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "received application data before the controller stream was enabled",
-                ));
+        match decoder.read_next(stream) {
+            Ok(Some(frame)) => match decode_application_message(&frame)? {
+                ApplicationMessage::InputState(state) => {
+                    if sequence.accept(&state)? {
+                        gamepad.apply_state(&state)?;
+                        last_input = Instant::now();
+                        controls_released = false;
+                    }
+                }
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "received a message that is invalid during controller streaming",
+                    ));
+                }
+            },
+            Ok(None) => {
+                gamepad.release_all()?;
+                return Ok(());
             }
             Err(error)
                 if matches!(
                     error.kind(),
                     io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) => {}
+                ) =>
+            {
+                // A silent or stalled phone must never leave a button held forever.
+                if !controls_released && last_input.elapsed() >= Duration::from_secs(2) {
+                    gamepad.release_all()?;
+                    controls_released = true;
+                }
+            }
             Err(error) => return Err(error),
         }
     }
