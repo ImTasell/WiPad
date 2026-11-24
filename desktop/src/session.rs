@@ -213,7 +213,10 @@ mod tests {
     fn rejects_messages_that_are_not_input_session_messages() {
         let mut session = SessionInputTracker::new(Instant::now());
         assert_eq!(
-            session.handle(ApplicationMessage::SessionReady, Instant::now()).unwrap_err().kind(),
+            session
+                .handle(ApplicationMessage::SessionReady, Instant::now())
+                .unwrap_err()
+                .kind(),
             io::ErrorKind::InvalidData
         );
     }
