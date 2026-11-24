@@ -1,6 +1,5 @@
 use std::io;
 
-
 use evdev::{
     AbsInfo, AbsoluteAxisCode, AttributeSet, EventType, InputEvent, KeyCode, UinputAbsSetup,
 };
