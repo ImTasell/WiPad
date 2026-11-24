@@ -45,6 +45,38 @@ jobs:
       - name: Run Clippy
         working-directory: desktop
         run: cargo clippy --all-targets -- -D warnings
-      - name: Build
+      - name: Build debug binary
         working-directory: desktop
         run: cargo build
+      - name: Build optimized Linux binary
+        working-directory: desktop
+        run: cargo build --release
+      - name: Package Linux test build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/wipad-linux-x86_64
+          install -m 0755 desktop/target/release/wipad-desktop dist/wipad-linux-x86_64/wipad-desktop
+          cat > dist/wipad-linux-x86_64/TESTING.txt <<'EOF'
+          WiPad Linux x86_64 test build
+
+          Run:
+            chmod +x wipad-desktop
+            ./wipad-desktop
+
+          This is an unsigned development build, not a system installer.
+          It does not install services or change device permissions.
+          The desktop app needs access to /dev/uinput to create a virtual gamepad.
+          Do not run the GUI as root. Configure uinput access separately.
+
+          This build is dynamically linked. If startup reports a missing shared
+          library, install the matching Fedora runtime package and try again.
+          EOF
+          tar -C dist -czf dist/wipad-linux-x86_64.tar.gz wipad-linux-x86_64
+      - name: Upload Linux desktop test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: wipad-linux-x86_64
+          path: dist/wipad-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
