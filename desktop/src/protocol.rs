@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn decodes_the_shared_phone_pairing_hello_vector() {
-        let encoded = [0x01, 0x01, 0x01, 0x01, 0x05, b'P', b'h', b'o', b'n', b'e'];
+        let encoded = [0x01, 0x01, 0x02, 0x01, 0x05, b'P', b'h', b'o', b'n', b'e'];
 
         assert_eq!(
             decode_application_message(&encoded).unwrap(),
