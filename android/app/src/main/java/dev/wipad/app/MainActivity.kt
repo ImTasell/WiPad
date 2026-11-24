@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var activityStarted = false
     @Volatile private var phoneSession: PhoneSession? = null
     @Volatile private var inputThread: Thread? = null
+    @Volatile private var heartbeatThread: Thread? = null
     @Volatile private var connectionThread: Thread? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -76,6 +77,8 @@ class MainActivity : ComponentActivity() {
         connectionThread = null
         inputThread?.interrupt()
         inputThread = null
+        heartbeatThread?.interrupt()
+        heartbeatThread = null
         phoneSession?.close()
         phoneSession = null
         super.onStop()
@@ -114,6 +117,7 @@ class MainActivity : ComponentActivity() {
                         runOnUiThread {
                             desktopStatus = "Secure session ready · ${session.peerDisplayName}"
                         }
+                        startHeartbeatResponder(session)
                         startControllerStream(session)
 
                         while (
@@ -223,6 +227,29 @@ class MainActivity : ComponentActivity() {
             start()
         }
         inputThread = worker
+    }
+
+    private fun startHeartbeatResponder(session: PhoneSession) {
+        heartbeatThread?.interrupt()
+        val worker = Thread({
+            try {
+                session.respondToHeartbeats()
+            } catch (error: Exception) {
+                if (phoneSession === session) {
+                    phoneSession = null
+                    session.close()
+                    if (activityStarted) {
+                        runOnUiThread {
+                            desktopStatus = "Desktop heartbeat lost · reconnecting"
+                        }
+                    }
+                }
+            }
+        }, "wipad-session-heartbeat").apply {
+            isDaemon = true
+            start()
+        }
+        heartbeatThread = worker
     }
 
     companion object {
