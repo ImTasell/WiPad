@@ -120,8 +120,6 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
-    // Shared wire vector: payload 10 20 30 -> 00 00 00 03 10 20 30.
-    const PAYLOAD: [u8; 3] = [0x10, 0x20, 0x30];
     const GOLDEN_VECTORS: &str = include_str!("../../protocol/golden-vectors.txt");
 
     fn golden_vector(name: &str) -> Vec<u8> {
@@ -138,11 +136,15 @@ mod tests {
             .collect()
     }
 
+    fn frame_payload() -> Vec<u8> {
+        golden_vector("frame_sample").into_iter().skip(4).collect()
+    }
+
     #[test]
     fn writes_the_shared_big_endian_vector() {
         let mut encoded = Vec::new();
 
-        write_frame(&mut encoded, &PAYLOAD).unwrap();
+        write_frame(&mut encoded, &frame_payload()).unwrap();
 
         assert_eq!(encoded, golden_vector("frame_sample"));
     }
@@ -151,7 +153,7 @@ mod tests {
     fn reads_the_shared_big_endian_vector() {
         let mut encoded = Cursor::new(golden_vector("frame_sample"));
 
-        assert_eq!(read_frame(&mut encoded).unwrap(), PAYLOAD);
+        assert_eq!(read_frame(&mut encoded).unwrap(), frame_payload());
     }
 
     #[test]
@@ -234,7 +236,7 @@ mod tests {
             io::ErrorKind::WouldBlock
         );
         assert!(decoder.has_partial_frame());
-        assert_eq!(decoder.read_next(&mut reader).unwrap().unwrap(), PAYLOAD);
+        assert_eq!(decoder.read_next(&mut reader).unwrap().unwrap(), frame_payload());
         assert!(!decoder.has_partial_frame());
         assert_eq!(decoder.read_next(&mut reader).unwrap(), None);
     }
@@ -281,7 +283,7 @@ mod tests {
             io::ErrorKind::TimedOut
         );
         assert!(decoder.has_partial_frame());
-        assert_eq!(decoder.read_next(&mut reader).unwrap().unwrap(), PAYLOAD);
+        assert_eq!(decoder.read_next(&mut reader).unwrap().unwrap(), frame_payload());
         assert!(!decoder.has_partial_frame());
     }
 
