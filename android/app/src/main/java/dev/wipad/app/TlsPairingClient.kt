@@ -43,6 +43,17 @@ internal class PhoneSession(
         )
     }
 
+    @Synchronized
+    fun sendHeartbeatResponse(nonce: Long) {
+        if (socket.isClosed || socket.isOutputShutdown) {
+            throw IOException("WiPad session is closed")
+        }
+        FrameCodec.writeFrame(
+            socket.outputStream,
+            ApplicationMessageCodec.encode(ApplicationMessage.Pong(nonce)),
+        )
+    }
+
     /**
      * Owns the session read direction. The desktop sends periodic PING frames;
      * a timeout or unexpected message is a dead/invalid session.
@@ -53,10 +64,7 @@ internal class PhoneSession(
             val message = ApplicationMessageCodec.decode(FrameCodec.readFrame(socket.inputStream))
             when (message) {
                 is ApplicationMessage.Ping -> {
-                    FrameCodec.writeFrame(
-                        socket.outputStream,
-                        ApplicationMessageCodec.encode(ApplicationMessage.Pong(message.nonce)),
-                    )
+                    sendHeartbeatResponse(message.nonce)
                 }
                 else -> throw IOException("Desktop sent an invalid heartbeat-session message")
             }
