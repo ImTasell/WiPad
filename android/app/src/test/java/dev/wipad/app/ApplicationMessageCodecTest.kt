@@ -8,7 +8,7 @@ import org.junit.Test
 
 class ApplicationMessageCodecTest {
     private val helloVector = byteArrayOf(
-        0x01, 0x01, 0x00, 0x01, 0x05,
+        0x01, 0x01, 0x01, 0x01, 0x05,
         'P'.code.toByte(), 'h'.code.toByte(), 'o'.code.toByte(),
         'n'.code.toByte(), 'e'.code.toByte(),
     )
