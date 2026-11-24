@@ -1,6 +1,9 @@
 package dev.wipad.app
 
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 
 internal enum class PeerRole(val wireValue: Int) {
@@ -58,6 +61,7 @@ internal object ApplicationMessageCodec {
             is ApplicationMessage.PairingHello -> {
                 val name = message.displayName.toByteArray(StandardCharsets.UTF_8)
                 require(message.major == PROTOCOL_MAJOR)
+                require(message.minor in 0..0xFF)
                 require(name.isNotEmpty() && name.size <= MAX_DISPLAY_NAME_LENGTH)
                 require(message.displayName.none(Char::isISOControl))
 
@@ -157,7 +161,15 @@ internal object ApplicationMessageCodec {
             throw IOException("WiPad pairing hello display-name length is invalid")
         }
 
-        val name = payload.copyOfRange(5, payload.size).toString(StandardCharsets.UTF_8)
+        val name = try {
+            StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(payload, 5, nameLength))
+                .toString()
+        } catch (error: CharacterCodingException) {
+            throw IOException("WiPad display name is not valid UTF-8", error)
+        }
         if (name.any(Char::isISOControl)) {
             throw IOException("WiPad display name contains control characters")
         }
