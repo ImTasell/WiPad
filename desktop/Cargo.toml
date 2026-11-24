@@ -10,6 +10,8 @@ build = "build.rs"
 mdns-sd = "0.22.0"
 slint = "1.19.0"
 uuid = { version = "1.18.1", features = ["v4"] }
+snow = "0.10.0"
+zeroize = "1.8.2"
 
 [build-dependencies]
 slint-build = "1.19.0"
