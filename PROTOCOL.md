@@ -101,7 +101,7 @@ First-contact flow:
 3. Derive the same comparison string from the phone certificate and desktop certificate, always in that order.
 4. Display the peer's name, platform, and comparison string on both devices. Each user checks that the strings match and explicitly approves.
 5. Exchange an encrypted `PAIRING_DECISION` from each peer. A rejection closes the session.
-6. Persist the remote certificate fingerprint only after the local user has approved and the remote approval has been received.
+6. Persist the remote certificate fingerprint only after both peers have approved and both `SESSION_READY` messages have been exchanged.
 7. Exchange `SESSION_READY`; only then may controller input be accepted.
 
 A previously stored matching peer fingerprint counts as that device's local approval on reconnect. It does not count as the other device's approval. Both sides must still prove that they recognize the other identity. This is approval-based pairing, not PIN pairing; the comparison string is displayed, never typed. After both sides have stored matching identities, normal reconnects require no user action.
