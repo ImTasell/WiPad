@@ -1,4 +1,6 @@
 use std::io::{self, Read, Write};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::protocol::{
     ApplicationMessage, PROTOCOL_MAJOR, PROTOCOL_MINOR, PeerRole, read_application_message,
@@ -22,6 +24,104 @@ pub struct PairingResult {
     pub comparison_string: String,
     pub peer_fingerprint: [u8; 32],
     pub reconnecting: bool,
+}
+
+#[derive(Default)]
+struct ApprovalState {
+    next_id: u64,
+    pending: Option<PendingApproval>,
+}
+
+struct PendingApproval {
+    id: u64,
+    request: PairingRequest,
+    decision: Option<bool>,
+}
+
+/// Thread-safe, fail-closed bridge between network pairing and a future UI.
+///
+/// The network worker blocks for a bounded time. The UI can inspect the
+/// pending request and submit one explicit decision from another thread.
+#[derive(Clone, Default)]
+pub struct PairingApprovalBroker {
+    inner: Arc<(Mutex<ApprovalState>, Condvar)>,
+}
+
+impl PairingApprovalBroker {
+    pub fn pending_request(&self) -> Option<PairingRequest> {
+        let (lock, _) = &*self.inner;
+        lock.lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .pending
+            .as_ref()
+            .map(|pending| pending.request.clone())
+    }
+
+    pub fn decide(&self, approved: bool) -> bool {
+        let (lock, changed) = &*self.inner;
+        let mut state = lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(pending) = state.pending.as_mut() else {
+            return false;
+        };
+        if pending.decision.is_some() {
+            return false;
+        }
+        pending.decision = Some(approved);
+        changed.notify_all();
+        true
+    }
+
+    pub fn cancel_pending(&self) -> bool {
+        self.decide(false)
+    }
+
+    pub fn request(&self, request: &PairingRequest, timeout: Duration) -> bool {
+        let (lock, changed) = &*self.inner;
+        let mut state = lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.pending.is_some() {
+            return false;
+        }
+
+        state.next_id = state.next_id.wrapping_add(1).max(1);
+        let request_id = state.next_id;
+        state.pending = Some(PendingApproval {
+            id: request_id,
+            request: request.clone(),
+            decision: None,
+        });
+        changed.notify_all();
+
+        let deadline = Instant::now() + timeout;
+        loop {
+            let Some(pending) = state.pending.as_ref() else {
+                return false;
+            };
+            if pending.id != request_id {
+                return false;
+            }
+            if let Some(decision) = pending.decision {
+                state.pending = None;
+                changed.notify_all();
+                return decision;
+            }
+
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                state.pending = None;
+                changed.notify_all();
+                return false;
+            }
+
+            state = changed
+                .wait_timeout(state, remaining)
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .0;
+        }
+    }
 }
 
 fn expected_peer_role(local_role: PeerRole) -> PeerRole {
@@ -199,6 +299,45 @@ mod tests {
                 .unwrap();
         }
         (first, second)
+    }
+
+    #[test]
+    fn approval_broker_requires_an_explicit_decision() {
+        let broker = PairingApprovalBroker::default();
+        let request = PairingRequest {
+            peer_display_name: "WiPad Phone".to_owned(),
+            comparison_string: "A1B2-C3D4-E5F6".to_owned(),
+            peer_fingerprint: [7; 32],
+            reconnecting: false,
+        };
+        let waiting_broker = broker.clone();
+        let waiting_request = request.clone();
+        let worker = std::thread::spawn(move || {
+            waiting_broker.request(&waiting_request, Duration::from_secs(2))
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while broker.pending_request().is_none() && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(broker.pending_request(), Some(request));
+        assert!(broker.decide(true));
+        assert!(worker.join().unwrap());
+        assert!(broker.pending_request().is_none());
+        assert!(!broker.decide(true));
+    }
+
+    #[test]
+    fn approval_broker_times_out_and_fails_closed() {
+        let broker = PairingApprovalBroker::default();
+        let request = PairingRequest {
+            peer_display_name: "Unknown peer".to_owned(),
+            comparison_string: "A1B2-C3D4-E5F6".to_owned(),
+            peer_fingerprint: [9; 32],
+            reconnecting: false,
+        };
+        assert!(!broker.request(&request, Duration::from_millis(1)));
+        assert!(broker.pending_request().is_none());
     }
 
     #[test]
