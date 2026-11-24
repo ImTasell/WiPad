@@ -5,11 +5,12 @@ plugins {
 
 android {
     namespace = "dev.wipad.app"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "dev.wipad.app"
         minSdk = 30
+        // Keep runtime behavior opt-in separate from compile-time API access.
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
