@@ -52,10 +52,10 @@ impl SessionInputTracker {
                 Ok(Some(SessionAction::Apply(state)))
             }
             ApplicationMessage::ControllerStatus { connected } => {
-                self.last_input = now;
                 if self.controller_connected == Some(connected) {
                     return Ok(None);
                 }
+                self.last_input = now;
                 self.controller_connected = Some(connected);
                 if connected {
                     Ok(Some(SessionAction::ControllerConnected))
