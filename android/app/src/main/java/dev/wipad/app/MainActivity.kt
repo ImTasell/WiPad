@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
 import java.net.InetAddress
+import javax.net.ssl.SSLSocket
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ThreadLocalRandom
@@ -42,6 +43,7 @@ class MainActivity : ComponentActivity() {
     private val inputSequence = AtomicLong(0)
     @Volatile private var activityStarted = false
     @Volatile private var phoneSession: PhoneSession? = null
+    @Volatile private var connectingSocket: SSLSocket? = null
     @Volatile private var inputThread: Thread? = null
     @Volatile private var heartbeatThread: Thread? = null
     @Volatile private var connectionThread: Thread? = null
@@ -73,15 +75,31 @@ class MainActivity : ComponentActivity() {
         activityStarted = false
         discovery?.close()
         discovery = null
-        connectionThread?.interrupt()
-        connectionThread = null
-        inputThread?.interrupt()
-        inputThread = null
-        heartbeatThread?.interrupt()
-        heartbeatThread = null
-        phoneSession?.close()
+        val activeSession = phoneSession
         phoneSession = null
+        runCatching { connectingSocket?.close() }
+        connectingSocket = null
+        runCatching { activeSession?.close() }
+
+        connectionThread?.interrupt()
+        inputThread?.interrupt()
+        heartbeatThread?.interrupt()
+        joinWorker(inputThread)
+        joinWorker(heartbeatThread)
+        joinWorker(connectionThread)
+        connectionThread = null
+        inputThread = null
+        heartbeatThread = null
         super.onStop()
+    }
+
+    private fun joinWorker(worker: Thread?) {
+        if (worker == null || worker === Thread.currentThread()) return
+        try {
+            worker.join(750)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
     }
 
     private fun connectToDesktop(address: InetAddress, port: Int, serviceName: String) {
@@ -99,6 +117,7 @@ class MainActivity : ComponentActivity() {
                             address = address,
                             port = port,
                             displayName = "WiPad Phone",
+                            onSocketCreated = { connectingSocket = it },
                         ) { request ->
                             runOnUiThread {
                                 desktopStatus = "Pairing needs approval · ${request.peerDisplayName} · ${request.comparisonString}"
@@ -107,6 +126,7 @@ class MainActivity : ComponentActivity() {
                             false
                         }
 
+                        connectingSocket = null
                         if (!activityStarted || Thread.currentThread().isInterrupted) {
                             session.close()
                             break
@@ -152,6 +172,7 @@ class MainActivity : ComponentActivity() {
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
             } finally {
+                connectingSocket = null
                 sessionConnecting.set(false)
             }
         }, "wipad-connection-manager").apply {
