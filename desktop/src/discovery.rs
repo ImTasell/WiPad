@@ -132,8 +132,11 @@ impl Drop for Discovery {
 
 fn is_compatible_phone(protocol_versions: Option<&str>, role: Option<&str>) -> bool {
     role == Some("phone")
-        && protocol_versions
-            .is_some_and(|versions| versions.split(',').any(|version| version.trim() == PROTOCOL_MAJOR))
+        && protocol_versions.is_some_and(|versions| {
+            versions
+                .split(',')
+                .any(|version| version.trim() == PROTOCOL_MAJOR)
+        })
 }
 
 #[cfg(test)]
