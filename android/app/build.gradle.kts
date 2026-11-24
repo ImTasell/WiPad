@@ -10,7 +10,8 @@ android {
     defaultConfig {
         applicationId = "dev.wipad.app"
         minSdk = 30
-        targetSdk = 30
+        // Targeting a modern API does not change Android 11 minimum support.
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
 
