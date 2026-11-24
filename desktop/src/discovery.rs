@@ -8,7 +8,7 @@ use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
 use crate::controller::InputSequenceTracker;
 use crate::pairing::{PairingRequest, perform_pairing};
 use crate::protocol::{
-    ApplicationMessage, FrameReader, PeerRole, decode_application_message,
+    ApplicationMessage, FrameReader, HeartbeatTracker, PeerRole, decode_application_message,
     write_application_message,
 };
 use crate::security::{
@@ -279,9 +279,7 @@ fn receive_controller_stream<S: Read + Write>(
     let mut last_input = Instant::now();
     let mut controls_released = true;
     let mut controller_connected: Option<bool> = None;
-    let mut heartbeat_nonce = 1_u64;
-    let mut awaiting_pong: Option<(u64, Instant)> = None;
-    let mut last_ping = Instant::now() - Duration::from_secs(2);
+    let mut heartbeat = HeartbeatTracker::default();
 
     loop {
         if stop.load(Ordering::Relaxed) {
@@ -289,24 +287,9 @@ fn receive_controller_stream<S: Read + Write>(
             return Ok(());
         }
 
-        if let Some((_, sent_at)) = awaiting_pong {
-            if sent_at.elapsed() >= Duration::from_secs(7) {
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "phone heartbeat timed out",
-                ));
-            }
-        } else if last_ping.elapsed() >= Duration::from_secs(2) {
-            write_application_message(
-                stream,
-                &ApplicationMessage::Ping {
-                    nonce: heartbeat_nonce,
-                },
-            )?;
+        if let Some(nonce) = heartbeat.poll(Instant::now())? {
+            write_application_message(stream, &ApplicationMessage::Ping { nonce })?;
             stream.flush()?;
-            awaiting_pong = Some((heartbeat_nonce, Instant::now()));
-            heartbeat_nonce = heartbeat_nonce.wrapping_add(1).max(1);
-            last_ping = Instant::now();
         }
 
         match decoder.read_next(stream) {
@@ -320,15 +303,7 @@ fn receive_controller_stream<S: Read + Write>(
                         }
                     }
                 }
-                ApplicationMessage::Pong { nonce } => {
-                    match awaiting_pong {
-                        Some((expected, _)) if expected == nonce => awaiting_pong = None,
-                        _ => return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "received an unexpected WiPad heartbeat response",
-                        )),
-                    }
-                }
+                ApplicationMessage::Pong { nonce } => heartbeat.receive_pong(nonce)?,
                 ApplicationMessage::ControllerStatus { connected } => {
                     if controller_connected != Some(connected) {
                         controller_connected = Some(connected);
