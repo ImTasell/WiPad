@@ -26,8 +26,8 @@ impl Discovery {
         let stop = Arc::new(AtomicBool::new(false));
         let daemon = ServiceDaemon::new().map_err(|error| error.to_string())?;
         let local_ip = select_local_ipv4().map_err(|error| error.to_string())?;
-        let installation_id = load_or_create_installation_id()
-            .map_err(|error| error.to_string())?;
+        let installation_id =
+            load_or_create_installation_id().map_err(|error| error.to_string())?;
 
         let properties = [
             ("pv", PROTOCOL_MAJOR),
@@ -44,7 +44,9 @@ impl Discovery {
             &properties[..],
         )
         .map_err(|error| error.to_string())?;
-        daemon.register(service).map_err(|error| error.to_string())?;
+        daemon
+            .register(service)
+            .map_err(|error| error.to_string())?;
 
         let listener = TcpListener::bind(("0.0.0.0", SESSION_PORT))
             .map_err(|error| format!("could not reserve discovery endpoint: {error}"))?;
@@ -81,9 +83,10 @@ impl Discovery {
                 while !browse_stop.load(Ordering::Relaxed) {
                     if let Ok(event) = receiver.recv_timeout(Duration::from_millis(500)) {
                         if let ServiceEvent::ServiceResolved(service) = event {
-                            let compatible = service
-                                .get_property_val_str("pv")
-                                .is_some_and(|version| version.split(',').any(|v| v == PROTOCOL_MAJOR));
+                            let compatible =
+                                service.get_property_val_str("pv").is_some_and(|version| {
+                                    version.split(',').any(|v| v == PROTOCOL_MAJOR)
+                                });
                             let is_phone = service.get_property_val_str("role") == Some("phone");
                             if compatible && is_phone {
                                 let name = service
