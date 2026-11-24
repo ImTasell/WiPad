@@ -29,6 +29,10 @@ internal sealed class ApplicationMessage {
     data class InputState(val state: ControllerState) : ApplicationMessage()
 
     data class ControllerStatus(val connected: Boolean) : ApplicationMessage()
+
+    data class Ping(val nonce: Long) : ApplicationMessage()
+
+    data class Pong(val nonce: Long) : ApplicationMessage()
 }
 
 /**
@@ -38,7 +42,7 @@ internal sealed class ApplicationMessage {
  */
 internal object ApplicationMessageCodec {
     const val PROTOCOL_MAJOR = 1
-    const val PROTOCOL_MINOR = 1
+    const val PROTOCOL_MINOR = 2
     const val MAX_DISPLAY_NAME_LENGTH = 64
 
     private const val MESSAGE_PAIRING_HELLO = 0x01
@@ -46,6 +50,8 @@ internal object ApplicationMessageCodec {
     private const val MESSAGE_SESSION_READY = 0x03
     private const val MESSAGE_INPUT_STATE = ControllerStateCodec.MESSAGE_TYPE
     private const val MESSAGE_CONTROLLER_STATUS = 0x11
+    private const val MESSAGE_PING = 0x12
+    private const val MESSAGE_PONG = 0x13
 
     fun encode(message: ApplicationMessage): ByteArray {
         val payload = when (message) {
@@ -77,6 +83,9 @@ internal object ApplicationMessageCodec {
                 MESSAGE_CONTROLLER_STATUS.toByte(),
                 if (message.connected) 1 else 0,
             )
+
+            is ApplicationMessage.Ping -> encodeHeartbeat(MESSAGE_PING, message.nonce)
+            is ApplicationMessage.Pong -> encodeHeartbeat(MESSAGE_PONG, message.nonce)
         }
 
         if (payload.isEmpty() || payload.size > FrameCodec.MAX_FRAME_LENGTH) {
@@ -100,6 +109,8 @@ internal object ApplicationMessageCodec {
                 }
                 ApplicationMessage.ControllerStatus(payload[1].toInt() == 1)
             }
+            MESSAGE_PING -> ApplicationMessage.Ping(decodeHeartbeat(payload, MESSAGE_PING))
+            MESSAGE_PONG -> ApplicationMessage.Pong(decodeHeartbeat(payload, MESSAGE_PONG))
             MESSAGE_PAIRING_DECISION -> {
                 if (payload.size != 2 || (payload[1].toInt() and 0xFF) !in 0..1) {
                     throw IOException("WiPad pairing decision is malformed")
@@ -116,6 +127,19 @@ internal object ApplicationMessageCodec {
 
             else -> throw IOException("WiPad application message type is unknown")
         }
+    }
+
+    private fun encodeHeartbeat(type: Int, nonce: Long): ByteArray =
+        java.nio.ByteBuffer.allocate(9)
+            .put(type.toByte())
+            .putLong(nonce)
+            .array()
+
+    private fun decodeHeartbeat(payload: ByteArray, expectedType: Int): Long {
+        if (payload.size != 9 || (payload[0].toInt() and 0xFF) != expectedType) {
+            throw IOException("WiPad heartbeat message is malformed")
+        }
+        return java.nio.ByteBuffer.wrap(payload, 1, 8).long
     }
 
     private fun decodePairingHello(payload: ByteArray): ApplicationMessage.PairingHello {
