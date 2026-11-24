@@ -174,12 +174,30 @@ mod tests {
         assert_eq!(events[0], (EventType::KEY.0, KeyCode::BTN_SOUTH.0, 1));
         assert_eq!(events[1], (EventType::KEY.0, KeyCode::BTN_EAST.0, 0));
         assert_eq!(events[5], (EventType::KEY.0, KeyCode::BTN_TR.0, 1));
-        assert_eq!(events[BUTTON_MAPPING.len()], (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_X.0, -123));
-        assert_eq!(events[BUTTON_MAPPING.len() + 1], (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_Y.0, 456));
-        assert_eq!(events[BUTTON_MAPPING.len() + 4], (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_Z.0, 12_345));
-        assert_eq!(events[BUTTON_MAPPING.len() + 5], (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_RZ.0, u16::MAX as i32));
-        assert_eq!(events[BUTTON_MAPPING.len() + 6], (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_HAT0X.0, 1));
-        assert_eq!(events[BUTTON_MAPPING.len() + 7], (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_HAT0Y.0, -1));
+        assert_eq!(
+            events[BUTTON_MAPPING.len()],
+            (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_X.0, -123)
+        );
+        assert_eq!(
+            events[BUTTON_MAPPING.len() + 1],
+            (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_Y.0, 456)
+        );
+        assert_eq!(
+            events[BUTTON_MAPPING.len() + 4],
+            (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_Z.0, 12_345)
+        );
+        assert_eq!(
+            events[BUTTON_MAPPING.len() + 5],
+            (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_RZ.0, u16::MAX as i32)
+        );
+        assert_eq!(
+            events[BUTTON_MAPPING.len() + 6],
+            (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_HAT0X.0, 1)
+        );
+        assert_eq!(
+            events[BUTTON_MAPPING.len() + 7],
+            (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_HAT0Y.0, -1)
+        );
     }
 
     #[test]
