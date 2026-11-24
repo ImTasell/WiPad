@@ -157,9 +157,14 @@ class MainActivity : ComponentActivity() {
         connectionThread = worker
     }
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         controllerInput.refreshDevices()
-        return if (controllerInput.handleKeyEvent(event)) true else super.dispatchKeyEvent(event)
+        return if (controllerInput.handleKeyEvent(event)) true else super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        controllerInput.refreshDevices()
+        return if (controllerInput.handleKeyEvent(event)) true else super.onKeyUp(keyCode, event)
     }
 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
