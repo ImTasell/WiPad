@@ -99,6 +99,7 @@ internal class TlsPairingClient(
             val peerHello = readMessage(socket) as? ApplicationMessage.PairingHello
                 ?: throw IOException("Desktop did not send a WiPad pairing hello")
             if (peerHello.major != ApplicationMessageCodec.PROTOCOL_MAJOR
+                || peerHello.minor < ApplicationMessageCodec.PROTOCOL_MINOR
                 || peerHello.role != PeerRole.DESKTOP
             ) {
                 throw IOException("Desktop sent an incompatible WiPad pairing hello")
