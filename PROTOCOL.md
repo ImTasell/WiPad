@@ -97,12 +97,14 @@ First contact still requires a deliberate trust decision. A broadcast is visible
 First-contact flow:
 
 1. Discover a compatible peer.
-2. Establish an authenticated-encryption handshake using a reviewed, interoperable cryptographic protocol.
-3. Display the peer's device name and platform, and request a one-time approval.
-4. On approval, persist the peer's public identity.
-5. Automatically authenticate and reconnect to that same identity on later encounters.
+2. Establish mutual TLS 1.3 and verify both certificate signatures and P-256 public keys.
+3. Derive the same comparison string from the phone certificate and desktop certificate, always in that order.
+4. Display the peer's name, platform, and comparison string on both devices. Each user checks that the strings match and explicitly approves.
+5. Exchange an encrypted `PAIRING_DECISION` from each peer. A rejection closes the session.
+6. Persist the remote certificate fingerprint only after the local user has approved and the remote approval has been received.
+7. Exchange `SESSION_READY`; only then may controller input be accepted.
 
-This is approval-based pairing, not PIN pairing. After the initial approval, normal reconnects require no user action.
+A previously stored matching peer fingerprint counts as that device's local approval on reconnect. It does not count as the other device's approval. Both sides must still prove that they recognize the other identity. This is approval-based pairing, not PIN pairing; the comparison string is displayed, never typed. After both sides have stored matching identities, normal reconnects require no user action.
 
 ### 5.2 Identity rules
 
@@ -136,9 +138,9 @@ The logical session has these states:
 
 1. `DISCOVERING` — browsing for a compatible peer.
 2. `PEER_FOUND` — a compatible service has been resolved.
-3. `AWAITING_APPROVAL` — first-contact trust approval is required.
-4. `AUTHENTICATING` — identity and session security are being established.
-5. `READY` — authenticated session exists; no input is yet considered active.
+3. `TLS_HANDSHAKE` — mutual TLS 1.3 is being established.
+4. `AWAITING_APPROVAL` — one or both peers still need to approve the presented identity.
+5. `READY` — both approvals are complete and `SESSION_READY` has been exchanged; input may now be enabled.
 6. `STREAMING` — valid controller snapshots are being applied.
 7. `RECONNECTING` — the trusted peer is temporarily unavailable.
 8. `CLOSED` — session ended or was rejected.
@@ -155,9 +157,9 @@ The protocol defines logical messages independently of the eventual transport. T
 
 | Message | Direction | Purpose |
 | --- | --- | --- |
-| `HELLO` | Both | Exchange protocol version and public peer metadata |
-| `AUTH` | Both | Carry the selected secure-handshake messages |
-| `SESSION_READY` | Both | Confirm authenticated session setup |
+| `PAIRING_HELLO` | Both | Exchange WiPad protocol version, role, and display metadata inside TLS |
+| `PAIRING_DECISION` | Both | Approve or reject the peer identity after comparing the displayed string |
+| `SESSION_READY` | Both | Confirm both peers approved and the session may accept input |
 | `INPUT_STATE` | Phone → Desktop | Send a complete controller-state snapshot |
 | `PING` | Both | Liveness probe |
 | `PONG` | Both | Liveness response |
@@ -171,7 +173,7 @@ Implementations must reject unknown required message types, invalid lengths, inv
 
 The initial session transport is one TCP connection per active session. TCP is a byte stream: read and write boundaries do not correspond to application messages.
 
-Every handshake or encrypted transport record is wrapped in the shared frame format:
+The mutual TLS 1.3 handshake runs directly over TCP. Once TLS is established, every WiPad application message is carried in a bounded frame:
 
 - Four-byte unsigned payload length, big-endian.
 - Payload follows immediately; the length excludes the four-byte prefix.
@@ -179,9 +181,16 @@ Every handshake or encrypted transport record is wrapped in the shared frame for
 - Zero-length, oversized, and truncated frames are rejected before message parsing.
 - A frame decoder must not allocate from an unchecked peer-provided length.
 
-The Rust and Kotlin implementations share the same conformance vector and malformed-frame tests. See [docs/TCP_FRAMING.md](docs/TCP_FRAMING.md).
+The application payload begins with a one-byte message type. Message payload definitions:
 
-Framing does not provide authentication or confidentiality. During setup, TLS 1.3 records travel directly over the TCP stream and are not wrapped in WiPad frames. Once TLS is established, application messages are carried in the bounded WiPad frame format over the encrypted TLS stream. The inner message envelope and controller-state encoding remain subject to the protocol rules below.
+- `PAIRING_HELLO`: protocol major (u8), protocol minor (u8), role (u8: 1 phone, 2 desktop), display-name length (u8, at most 64), UTF-8 display name.
+- `PAIRING_DECISION`: one byte, `0` reject or `1` approve. Each side sends at most one decision per connection.
+- `SESSION_READY`: empty payload. Each peer sends it only after its local and remote approval flags are both true.
+- `INPUT_STATE`, `PING`, `PONG`, `CONTROLLER_STATUS`, `GOODBYE`, and `ERROR`: their message-specific payloads are defined by the protocol sections below.
+
+The Rust and Kotlin implementations share the same frame conformance vector and malformed-frame tests. See [docs/TCP_FRAMING.md](docs/TCP_FRAMING.md).
+
+Framing does not provide authentication or confidentiality. Application frames travel only inside the authenticated TLS 1.3 stream. A valid TLS connection is not yet an input session: reject `INPUT_STATE` until both approvals and `SESSION_READY` are complete.
 
 ## 8. Controller-state semantics
 
