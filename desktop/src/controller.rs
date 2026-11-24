@@ -192,10 +192,9 @@ mod tests {
         state.hat = 9;
         assert!(state.encode_payload().is_err());
 
-        assert!(ControllerState::decode_payload(
-            &golden_vector("invalid_input_state_hat")
-        )
-        .is_err());
+        assert!(
+            ControllerState::decode_payload(&golden_vector("invalid_input_state_hat")).is_err()
+        );
     }
 
     #[test]
