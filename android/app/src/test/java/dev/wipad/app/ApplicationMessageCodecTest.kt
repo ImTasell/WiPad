@@ -12,6 +12,7 @@ class ApplicationMessageCodecTest {
         val cases = listOf(
             ApplicationMessage.PairingHello(1, 2, PeerRole.PHONE, "Phone") to "pairing_hello_phone",
             ApplicationMessage.PairingHello(1, 2, PeerRole.DESKTOP, "Linux") to "pairing_hello_desktop",
+            ApplicationMessage.PairingHello(1, 2, PeerRole.PHONE, "Phone 📱") to "pairing_hello_phone_unicode",
         )
 
         cases.forEach { (message, vectorName) ->
@@ -73,6 +74,7 @@ class ApplicationMessageCodecTest {
             "invalid_pairing_hello_major",
             "invalid_pairing_hello_role",
             "invalid_pairing_hello_utf8",
+            "invalid_pairing_hello_control",
             "invalid_pairing_decision_boolean",
             "invalid_controller_status_boolean",
             "invalid_ping_truncated",
