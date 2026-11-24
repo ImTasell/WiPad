@@ -130,7 +130,7 @@ class TlsIdentity private constructor(
                 .socketFactory
                 .createSocket(rawSocket, "wipad.local", port, true) as SSLSocket
             tlsSocket.enabledProtocols = arrayOf("TLSv1.3")
-            tlsSocket.soTimeout = 5000
+            tlsSocket.soTimeout = 30_000
             tlsSocket.startHandshake()
             return tlsSocket
         } catch (error: Exception) {
@@ -194,17 +194,24 @@ class TlsPeerPinStore(context: Context) {
 
     fun loadDesktopFingerprint(): ByteArray? {
         val encoded = preferences.getString(DESKTOP_FINGERPRINT, null) ?: return null
-        val decoded = runCatching { Base64.decode(encoded, Base64.NO_WRAP) }.getOrNull()
-            ?: return null
-        return decoded.takeIf { it.size == 32 }
+        val decoded = try {
+            Base64.decode(encoded, Base64.NO_WRAP)
+        } catch (error: IllegalArgumentException) {
+            throw IllegalStateException("Stored WiPad desktop pin is malformed", error)
+        }
+        if (decoded.size != 32) {
+            throw IllegalStateException("Stored WiPad desktop pin has an invalid length")
+        }
+        return decoded
     }
 
-    /** Call only after the first-contact comparison and explicit user approval. */
+    /** Call only after both peers approved and SESSION_READY was exchanged. */
     fun approveDesktop(certificate: X509Certificate) {
         val fingerprint = TlsFingerprint.certificateFingerprint(certificate.encoded)
-        preferences.edit()
+        val saved = preferences.edit()
             .putString(DESKTOP_FINGERPRINT, Base64.encodeToString(fingerprint, Base64.NO_WRAP))
-            .apply()
+            .commit()
+        check(saved) { "Could not persist the WiPad desktop trust pin" }
     }
 
     fun forgetDesktop() {
