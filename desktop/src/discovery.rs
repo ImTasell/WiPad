@@ -4,13 +4,13 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
 
-use crate::pairing::{PairingRequest, perform_pairing};
 use crate::controller::InputSequenceTracker;
+use crate::pairing::{PairingRequest, perform_pairing};
 use crate::protocol::{ApplicationMessage, FrameReader, PeerRole, decode_application_message};
-use crate::virtual_gamepad::VirtualGamepad;
 use crate::security::{
     TlsIdentity, TrustDecision, TrustStore, certificate_fingerprint, server_config,
 };
+use crate::virtual_gamepad::VirtualGamepad;
 use std::path::PathBuf;
 use std::sync::{
     Arc,
@@ -247,7 +247,8 @@ where
     ));
 
     // Only create the virtual device after both peers have completed pairing.
-    tls.sock.set_read_timeout(Some(Duration::from_millis(250)))?;
+    tls.sock
+        .set_read_timeout(Some(Duration::from_millis(250)))?;
     receive_controller_stream(&mut tls, stop)?;
     on_status("Phone disconnected · scanning for phone".to_owned());
     Ok(())
