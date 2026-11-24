@@ -13,7 +13,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,18 +29,34 @@ private val WiPadColors = darkColorScheme(
 )
 
 class MainActivity : ComponentActivity() {
+    private var desktopStatus by mutableStateOf("Starting LAN discovery…")
+    private var discovery: LanDiscovery? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme(colorScheme = WiPadColors) {
-                WiPadHome()
+                WiPadHome(desktopStatus)
             }
         }
     }
+
+    override fun onStart() {
+        super.onStart()
+        discovery = LanDiscovery(this) { status ->
+            runOnUiThread { desktopStatus = status }
+        }.also { it.start() }
+    }
+
+    override fun onStop() {
+        discovery?.close()
+        discovery = null
+        super.onStop()
+    }
 }
 
-@Composable
-private fun WiPadHome() {
+@androidx.compose.runtime.Composable
+private fun WiPadHome(desktopStatus: String) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
@@ -63,7 +81,7 @@ private fun WiPadHome() {
                 color = MaterialTheme.colorScheme.secondary,
             )
             Text(
-                "Desktop: Scanning will be available soon",
+                "Desktop: $desktopStatus",
                 color = MaterialTheme.colorScheme.onBackground,
             )
         }
