@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
 
     private fun connectToDesktop(address: InetAddress, port: Int, serviceName: String) {
         if (phoneSession != null || !sessionConnecting.compareAndSet(false, true)) return
+        runOnUiThread { desktopStatus = "Securing connection to $serviceName" }
 
         Thread({
             try {
@@ -82,7 +83,7 @@ class MainActivity : ComponentActivity() {
                     displayName = "WiPad Phone",
                 ) { request ->
                     runOnUiThread {
-                        desktopStatus = "Pairing needs approval · \${request.peerDisplayName} · \${request.comparisonString}"
+                        desktopStatus = "Pairing needs approval · ${request.peerDisplayName} · ${request.comparisonString}"
                     }
                     // The approval surface is not implemented yet. Never auto-approve first contact.
                     false
@@ -91,7 +92,7 @@ class MainActivity : ComponentActivity() {
                 if (activityStarted) {
                     phoneSession = session
                     runOnUiThread {
-                        desktopStatus = "Secure session ready · \${session.peerDisplayName}"
+                        desktopStatus = "Secure session ready · ${session.peerDisplayName}"
                     }
                 } else {
                     session.close()
@@ -99,7 +100,7 @@ class MainActivity : ComponentActivity() {
             } catch (error: Exception) {
                 if (activityStarted) {
                     runOnUiThread {
-                        desktopStatus = "Secure session unavailable · \${error.message ?: error.javaClass.simpleName}"
+                        desktopStatus = "Secure session unavailable · ${error.message ?: error.javaClass.simpleName}"
                     }
                 }
             } finally {
