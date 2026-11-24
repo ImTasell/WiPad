@@ -1,4 +1,6 @@
 export component MainWindow inherits Window {
+    in-out property <string> phone-status: "Starting LAN discovery…";
+
     title: "WiPad";
     preferred-width: 560px;
     preferred-height: 420px;
@@ -30,15 +32,24 @@ export component MainWindow inherits Window {
             VerticalLayout {
                 padding: 20px;
                 spacing: 10px;
-                Text { text: "Phone: Waiting for discovery"; color: #80deea; }
-                Text { text: "Virtual gamepad: Not created"; color: #b8cde0; }
+                Text {
+                    text: "Phone: " + root.phone-status;
+                    color: #80deea;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: "Virtual gamepad: Not created";
+                    color: #b8cde0;
+                }
             }
         }
 
         Text {
-            text: "Automatic discovery is coming next.";
+            text: "LAN discovery is active. Peer discovery does not establish trust.";
             color: #90a4b8;
             font-size: 13px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
         }
     }
 }
