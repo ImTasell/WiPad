@@ -84,27 +84,10 @@ impl VirtualGamepad {
     /// Applies the complete normalized state. Every button and axis is emitted,
     /// so the kernel's state is always overwritten by one authoritative snapshot.
     pub fn apply_state(&mut self, state: &ControllerState) -> io::Result<()> {
-        state.validate()?;
-
-        let (hat_x, hat_y) = hat_axes(state.hat);
-        let mut events = Vec::with_capacity(BUTTON_MAPPING.len() + 8);
-
-        for (bit, key) in BUTTON_MAPPING {
-            let pressed = i32::from(state.buttons & bit != 0);
-            events.push(InputEvent::new(EventType::KEY.0, key.0, pressed));
-        }
-
-        events.extend([
-            absolute_event(AbsoluteAxisCode::ABS_X, state.left_x as i32),
-            absolute_event(AbsoluteAxisCode::ABS_Y, state.left_y as i32),
-            absolute_event(AbsoluteAxisCode::ABS_RX, state.right_x as i32),
-            absolute_event(AbsoluteAxisCode::ABS_RY, state.right_y as i32),
-            absolute_event(AbsoluteAxisCode::ABS_Z, state.left_trigger as i32),
-            absolute_event(AbsoluteAxisCode::ABS_RZ, state.right_trigger as i32),
-            absolute_event(AbsoluteAxisCode::ABS_HAT0X, hat_x),
-            absolute_event(AbsoluteAxisCode::ABS_HAT0Y, hat_y),
-        ]);
-
+        let events = state_events(state)?
+            .into_iter()
+            .map(|(event_type, code, value)| InputEvent::new(event_type, code, value))
+            .collect::<Vec<_>>();
         self.device.emit(&events)
     }
 
@@ -122,6 +105,29 @@ impl Drop for VirtualGamepad {
     fn drop(&mut self) {
         let _ = self.release_all();
     }
+}
+
+fn state_events(state: &ControllerState) -> io::Result<Vec<(u16, u16, i32)>> {
+    state.validate()?;
+    let (hat_x, hat_y) = hat_axes(state.hat);
+    let mut events = Vec::with_capacity(BUTTON_MAPPING.len() + 8);
+
+    for (bit, key) in BUTTON_MAPPING {
+        events.push((EventType::KEY.0, key.0, i32::from(state.buttons & bit != 0)));
+    }
+
+    events.extend([
+        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_X.0, state.left_x as i32),
+        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_Y.0, state.left_y as i32),
+        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_RX.0, state.right_x as i32),
+        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_RY.0, state.right_y as i32),
+        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_Z.0, state.left_trigger as i32),
+        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_RZ.0, state.right_trigger as i32),
+        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_HAT0X.0, hat_x),
+        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_HAT0Y.0, hat_y),
+    ]);
+
+    Ok(events)
 }
 
 fn axis(code: AbsoluteAxisCode, minimum: i32, maximum: i32) -> UinputAbsSetup {
@@ -149,6 +155,42 @@ fn hat_axes(hat: u8) -> (i32, i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn complete_snapshots_emit_every_button_and_axis() {
+        use crate::controller::{BUTTON_SOUTH, BUTTON_RIGHT_BUMPER};
+
+        let state = ControllerState {
+            sequence: 7,
+            sample_time_micros: 99,
+            buttons: BUTTON_SOUTH | BUTTON_RIGHT_BUMPER,
+            hat: 2,
+            left_x: -123,
+            left_y: 456,
+            right_x: i16::MIN,
+            right_y: i16::MAX,
+            left_trigger: 12_345,
+            right_trigger: u16::MAX,
+        };
+        let events = state_events(&state).unwrap();
+
+        assert_eq!(events.len(), BUTTON_MAPPING.len() + 8);
+        assert_eq!(events[0], (EventType::KEY.0, KeyCode::BTN_SOUTH.0, 1));
+        assert_eq!(events[1], (EventType::KEY.0, KeyCode::BTN_EAST.0, 0));
+        assert_eq!(events[5], (EventType::KEY.0, KeyCode::BTN_TR.0, 1));
+        assert_eq!(events[BUTTON_MAPPING.len()], (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_X.0, -123));
+        assert_eq!(events[BUTTON_MAPPING.len() + 1], (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_Y.0, 456));
+        assert_eq!(events[BUTTON_MAPPING.len() + 4], (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_Z.0, 12_345));
+        assert_eq!(events[BUTTON_MAPPING.len() + 5], (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_RZ.0, u16::MAX as i32));
+        assert_eq!(events[BUTTON_MAPPING.len() + 6], (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_HAT0X.0, 1));
+        assert_eq!(events[BUTTON_MAPPING.len() + 7], (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_HAT0Y.0, -1));
+    }
+
+    #[test]
+    fn invalid_controller_state_never_produces_kernel_events() {
+        let invalid = ControllerState::neutral(0, 0);
+        assert!(state_events(&invalid).is_err());
+    }
 
     #[test]
     fn maps_all_hat_directions_to_linux_axis_values() {
