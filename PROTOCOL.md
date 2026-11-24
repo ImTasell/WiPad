@@ -226,8 +226,8 @@ Axis conventions:
 
 ### 8.3 Input freshness and safety
 
-- The desktop enforces a receiver-side input timeout.
-- If no valid input snapshot arrives before the timeout, release every virtual button and axis to neutral.
+- The desktop enforces a 2-second receiver-side input freshness timeout. If no valid input snapshot arrives before the timeout, release every virtual button and axis to neutral.
+- If the stream remains idle for 15 seconds, terminate the session so the phone can reconnect; do not keep a dead session reserved indefinitely.
 - On session start, apply a neutral state before the first live snapshot.
 - On controller disconnect, the phone reports the state and sends a neutral snapshot when possible.
 - On session close, timeout, or fatal validation error, the desktop releases all controls.
