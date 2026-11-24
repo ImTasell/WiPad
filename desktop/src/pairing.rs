@@ -77,9 +77,7 @@ impl PairingApprovalBroker {
 
     pub fn request(&self, request: &PairingRequest, timeout: Duration) -> bool {
         let (lock, changed) = &*self.inner;
-        let mut state = lock
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if state.pending.is_some() {
             return false;
         }
