@@ -357,12 +357,24 @@ mod tests {
         let start = Instant::now();
         let mut heartbeat = HeartbeatTracker::default();
         assert_eq!(heartbeat.poll(start).unwrap(), Some(1));
-        assert_eq!(heartbeat.poll(start + Duration::from_secs(2)).unwrap(), None);
-        heartbeat.receive_pong(1).unwrap();
-        assert_eq!(heartbeat.poll(start + Duration::from_millis(1_999)).unwrap(), None);
-        assert_eq!(heartbeat.poll(start + Duration::from_secs(2)).unwrap(), Some(2));
         assert_eq!(
-            heartbeat.poll(start + Duration::from_secs(9)).unwrap_err().kind(),
+            heartbeat.poll(start + Duration::from_secs(2)).unwrap(),
+            None
+        );
+        heartbeat.receive_pong(1).unwrap();
+        assert_eq!(
+            heartbeat.poll(start + Duration::from_millis(1_999)).unwrap(),
+            None
+        );
+        assert_eq!(
+            heartbeat.poll(start + Duration::from_secs(2)).unwrap(),
+            Some(2)
+        );
+        assert_eq!(
+            heartbeat
+                .poll(start + Duration::from_secs(9))
+                .unwrap_err()
+                .kind(),
             io::ErrorKind::TimedOut
         );
     }
@@ -396,7 +408,11 @@ mod tests {
 
     #[test]
     fn rejects_malformed_heartbeat_messages() {
-        for malformed in [&[0x12][..], &[0x13, 0, 0, 0, 0, 0, 0, 0][..], &[0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0][..]] {
+        for malformed in [
+            &[0x12][..],
+            &[0x13, 0, 0, 0, 0, 0, 0, 0][..],
+            &[0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0][..],
+        ] {
             assert_eq!(
                 decode_application_message(malformed).unwrap_err().kind(),
                 io::ErrorKind::InvalidData
@@ -518,9 +534,10 @@ impl HeartbeatTracker {
             return Ok(None);
         }
 
-        if self.last_sent.is_some_and(|last| {
-            now.saturating_duration_since(last) < HEARTBEAT_INTERVAL
-        }) {
+        if self
+            .last_sent
+            .is_some_and(|last| now.saturating_duration_since(last) < HEARTBEAT_INTERVAL)
+        {
             return Ok(None);
         }
 
@@ -595,8 +612,12 @@ pub enum ApplicationMessage {
     ControllerStatus {
         connected: bool,
     },
-    Ping { nonce: u64 },
-    Pong { nonce: u64 },
+    Ping {
+        nonce: u64,
+    },
+    Pong {
+        nonce: u64,
+    },
 }
 
 pub fn encode_application_message(message: &ApplicationMessage) -> io::Result<Vec<u8>> {
