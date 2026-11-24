@@ -36,19 +36,19 @@ WiPad/
 └── LICENSE
 ```
 
-The Android build currently uses Gradle 9.6.0, Android Gradle Plugin 9.5.0 with AGP built-in Kotlin, Compose compiler plugin 2.4.10, JDK 17, compile SDK 37 (Android 17 preview), target SDK 36, and Compose BOM 2026.09.00. The desktop uses Rust 1.95+ and Slint 1.19.0. These are initial pinned versions and should be upgraded deliberately. A Gradle wrapper has not been checked in yet; CI installs the pinned Gradle version directly. The desktop `Cargo.lock` should be generated and committed once the first dependency resolution succeeds.
+The Android build currently uses Gradle 9.6.0, Android Gradle Plugin 9.5.0 with AGP built-in Kotlin, Compose compiler plugin 2.4.10, JDK 17, compile SDK 36, target SDK 30, Compose BOM 2026.06.01, and Activity Compose 1.11.0. The desktop uses Rust 1.95+ and Slint 1.19.0. These are initial pinned versions and should be upgraded deliberately. A Gradle wrapper has not been checked in yet; CI installs the pinned Gradle version directly. The desktop `Cargo.lock` should be generated and committed once the first dependency resolution succeeds.
 
 ## 3. Android development
 
 ### Requirements
 
 - JDK 17.
-- Android 17 (API 37) preview SDK platform for compilation; install it from the preview channel.
-- Android SDK Build-Tools 37.x and platform tools.
+- Android 16 (API 36) stable SDK platform for compilation.
+- Android SDK Build-Tools 36.0.0 and platform tools.
 - Android Gradle Plugin 9.5.0 with built-in Kotlin, and Gradle 9.6.0.
 - An Android 11+ device or emulator for testing.
 
-The minimum supported Android version is API 30. The app compiles against API 37 but targets API 36, keeping access to newer compile-time APIs separate from opting into newer runtime behavior. The app explicitly filters to `armeabi-v7a` for the initial 32-bit ARM target.
+The minimum supported Android version is API 30 (Android 11 Go). The app compiles against the stable API 36 SDK while targeting API 30 for the initial Android 11-focused release. The app explicitly filters to `armeabi-v7a` for the initial 32-bit ARM target. Target SDK will be raised deliberately when newer Android versions and their permission behavior are tested.
 
 ### Build and test
 
@@ -135,8 +135,8 @@ GitHub Actions should validate both platform projects independently, then run sh
 ### Android CI
 
 - Set up the pinned JDK.
-- Use the Android SDK command-line tools preinstalled on the GitHub-hosted runner; install API 37 and matching Build-Tools from the preview channel with `sdkmanager --channel=3`.
-- Compile against API 37 while keeping target SDK 36 until runtime behavior changes are deliberately tested.
+- Use the Android SDK command-line tools preinstalled on the GitHub-hosted runner; install the stable API 36 platform and Build-Tools 36.0.0 with `sdkmanager`.
+- Compile against stable API 36 and target API 30 for the Android 11 Go baseline.
 - Enable Gradle dependency/build caching.
 - Run unit tests, lint, and debug assembly.
 - Build the required `armeabi-v7a` artifact.
