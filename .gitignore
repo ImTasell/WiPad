@@ -1,0 +1,9 @@
+/gradle/
+/.gradle/
+/local.properties
+**/build/
+**/target/
+*.apk
+*.aab
+.idea/
+.vscode/
