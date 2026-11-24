@@ -226,7 +226,6 @@ mod tests {
         assert_eq!(decoder.read_next(&mut reader).unwrap(), None);
     }
 
-
     #[test]
     fn frame_reader_preserves_partial_payload_across_timeouts() {
         struct TimeoutReader {
