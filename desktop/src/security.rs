@@ -3,18 +3,16 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
 use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use rustls::{
-    ClientConfig, ClientConnection, DigitallySignedStruct, DistinguishedName, Error as TlsError,
-    ProtocolVersion, ServerConfig, ServerConnection, SignatureScheme, crypto::CryptoProvider,
+    ClientConfig, DigitallySignedStruct, DistinguishedName, Error as TlsError, ServerConfig,
+    SignatureScheme, crypto::CryptoProvider,
 };
 use rustls::{crypto, version};
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 use uuid::Uuid;
 use x509_parser::parse_x509_certificate;
 use zeroize::Zeroizing;
@@ -680,6 +678,9 @@ pub fn server_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustls::{ClientConnection, ProtocolVersion, ServerConnection};
+    use std::net::{TcpListener, TcpStream};
+    use std::time::Duration;
 
     fn temporary_directory(prefix: &str) -> PathBuf {
         std::env::temp_dir().join(format!("{}-{}", prefix, Uuid::new_v4()))
