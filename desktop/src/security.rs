@@ -270,6 +270,77 @@ pub fn evaluate_trust(
     }
 }
 
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PairingState {
+    AwaitingBothApprovals,
+    AwaitingLocalApproval,
+    AwaitingPeerApproval,
+    Ready,
+    Rejected,
+}
+
+/// Two-sided first-contact approval gate.
+///
+/// A local trust-pin match counts as the local side's approval. The peer must
+/// still send its own approval decision over the authenticated TLS stream.
+/// Persist a new peer pin only after this gate reaches Ready.
+#[derive(Clone, Debug)]
+pub struct PairingGate {
+    local_approved: bool,
+    peer_approved: bool,
+    rejected: bool,
+}
+
+impl PairingGate {
+    pub fn new(local_pin_matches: bool) -> Self {
+        Self {
+            local_approved: local_pin_matches,
+            peer_approved: false,
+            rejected: false,
+        }
+    }
+
+    pub fn approve_local(&mut self) {
+        if !self.rejected {
+            self.local_approved = true;
+        }
+    }
+
+    pub fn receive_peer_decision(&mut self, approved: bool) {
+        if self.rejected {
+            return;
+        }
+
+        if approved {
+            self.peer_approved = true;
+        } else {
+            self.rejected = true;
+        }
+    }
+
+    pub fn state(&self) -> PairingState {
+        if self.rejected {
+            PairingState::Rejected
+        } else {
+            match (self.local_approved, self.peer_approved) {
+                (true, true) => PairingState::Ready,
+                (false, true) => PairingState::AwaitingLocalApproval,
+                (true, false) => PairingState::AwaitingPeerApproval,
+                (false, false) => PairingState::AwaitingBothApprovals,
+            }
+        }
+    }
+
+    pub fn can_store_peer_pin(&self) -> bool {
+        self.state() == PairingState::Ready
+    }
+
+    pub fn can_start_input(&self) -> bool {
+        self.can_store_peer_pin()
+    }
+}
+
 /// Single-peer certificate pin store.
 ///
 /// The store operation is the explicit approval boundary. Discovery and TLS
@@ -797,4 +868,60 @@ mod tests {
 
         assert!(verifier.validate(&certificate).is_err());
     }
+
+
+    #[test]
+    fn pairing_gate_requires_both_sides_to_approve() {
+        let mut gate = PairingGate::new(false);
+
+        assert_eq!(gate.state(), PairingState::AwaitingBothApprovals);
+        assert!(!gate.can_store_peer_pin());
+        assert!(!gate.can_start_input());
+
+        gate.approve_local();
+        assert_eq!(gate.state(), PairingState::AwaitingPeerApproval);
+        assert!(!gate.can_start_input());
+
+        gate.receive_peer_decision(true);
+        assert_eq!(gate.state(), PairingState::Ready);
+        assert!(gate.can_store_peer_pin());
+        assert!(gate.can_start_input());
+    }
+
+    #[test]
+    fn a_trusted_local_pin_auto_approves_only_the_local_side() {
+        let mut gate = PairingGate::new(true);
+
+        assert_eq!(gate.state(), PairingState::AwaitingPeerApproval);
+        assert!(!gate.can_start_input());
+
+        gate.receive_peer_decision(true);
+        assert_eq!(gate.state(), PairingState::Ready);
+        assert!(gate.can_start_input());
+    }
+
+    #[test]
+    fn peer_rejection_permanently_blocks_the_session() {
+        let mut gate = PairingGate::new(true);
+        gate.receive_peer_decision(false);
+        gate.approve_local();
+        gate.receive_peer_decision(true);
+
+        assert_eq!(gate.state(), PairingState::Rejected);
+        assert!(!gate.can_store_peer_pin());
+        assert!(!gate.can_start_input());
+    }
+
+    #[test]
+    fn peer_approval_waits_for_local_approval() {
+        let mut gate = PairingGate::new(false);
+        gate.receive_peer_decision(true);
+
+        assert_eq!(gate.state(), PairingState::AwaitingLocalApproval);
+        assert!(!gate.can_start_input());
+
+        gate.approve_local();
+        assert_eq!(gate.state(), PairingState::Ready);
+    }
+
 }
