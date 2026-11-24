@@ -25,7 +25,10 @@ pub fn write_frame<W: Write>(writer: &mut W, payload: &[u8]) -> io::Result<()> {
     validate_length(payload.len(), io::ErrorKind::InvalidInput)?;
 
     let length = u32::try_from(payload.len()).map_err(|_| {
-        io::Error::new(io::ErrorKind::InvalidInput, "WiPad frame length is not representable")
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "WiPad frame length is not representable",
+        )
     })?;
 
     writer.write_all(&length.to_be_bytes())?;
