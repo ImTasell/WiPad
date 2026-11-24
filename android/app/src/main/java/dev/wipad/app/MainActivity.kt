@@ -50,6 +50,9 @@ class MainActivity : ComponentActivity() {
     private var discovery: LanDiscovery? = null
     @Volatile private var discoveredDesktop: DesktopEndpoint? = null
     private val sessionConnecting = AtomicBoolean(false)
+    private val trustRevisionLock = Any()
+    private var trustRevision = 0L
+    private val reconnectAfterTrustRevocation = AtomicBoolean(false)
     private val controllerInput = AndroidControllerInput()
     private val inputSequence = AtomicLong(0)
     @Volatile private var activityStarted = false
@@ -116,18 +119,30 @@ class MainActivity : ComponentActivity() {
 
     fun forgetTrustedDesktop(): Boolean {
         pairingApprovals.cancelPending()
+        val sockets = synchronized(trustRevisionLock) {
+            trustRevision = trustRevision.wrappingIncrement()
+            val active = phoneSession
+            phoneSession = null
+            val connecting = connectingSocket
+            connectingSocket = null
+            active to connecting
+        }
+        runCatching { sockets.first?.close() }
+        runCatching { sockets.second?.close() }
+
         val revoked = runCatching { TlsPeerPinStore(this).forgetDesktop() }.isSuccess
         if (!revoked) {
             runOnUiThread { desktopStatus = "Could not revoke trusted desktop" }
             return false
         }
-        phoneSession?.let {
-            phoneSession = null
-            runCatching { it.close() }
-        }
+
         runOnUiThread { desktopStatus = "Trusted desktop forgotten · requesting approval" }
-        discoveredDesktop?.let { endpoint ->
-            connectToDesktop(endpoint.address, endpoint.port, endpoint.serviceName)
+        if (sessionConnecting.get()) {
+            reconnectAfterTrustRevocation.set(true)
+        } else {
+            discoveredDesktop?.let { endpoint ->
+                connectToDesktop(endpoint.address, endpoint.port, endpoint.serviceName)
+            }
         }
         return true
     }
@@ -178,6 +193,7 @@ class MainActivity : ComponentActivity() {
                         continue
                     }
                     try {
+                        val attemptTrustRevision = synchronized(trustRevisionLock) { trustRevision }
                         val identity = TlsIdentity.loadOrCreate()
                         val pinStore = TlsPeerPinStore(this)
                         val session = TlsPairingClient(identity, pinStore).connect(
@@ -189,17 +205,30 @@ class MainActivity : ComponentActivity() {
                             pairingApprovals.requestApproval(request)
                         }
 
-                        connectingSocket = null
-                        if (!activityStarted || Thread.currentThread().isInterrupted) {
-                            session.close()
-                            break
+                        val accepted = synchronized(trustRevisionLock) {
+                            if (
+                                attemptTrustRevision == trustRevision
+                                && activityStarted
+                                && !Thread.currentThread().isInterrupted
+                                && discoveredDesktop == endpoint
+                            ) {
+                                phoneSession = session
+                                connectingSocket = null
+                                true
+                            } else {
+                                false
+                            }
                         }
-                        if (discoveredDesktop != endpoint) {
+                        if (!accepted) {
+                            if (attemptTrustRevision != synchronized(trustRevisionLock) { trustRevision }) {
+                                runCatching { pinStore.forgetDesktop() }
+                            }
+                            connectingSocket = null
                             session.close()
+                            if (!activityStarted || Thread.currentThread().isInterrupted) break
                             continue
                         }
-
-                        phoneSession = session
+                        reconnectAfterTrustRevocation.set(false)
                         attempt = 0
                         runOnUiThread {
                             desktopStatus = "Secure session ready · ${session.peerDisplayName}"
@@ -237,6 +266,11 @@ class MainActivity : ComponentActivity() {
             } finally {
                 connectingSocket = null
                 sessionConnecting.set(false)
+                if (reconnectAfterTrustRevocation.compareAndSet(true, false) && activityStarted) {
+                    discoveredDesktop?.let { endpoint ->
+                        connectToDesktop(endpoint.address, endpoint.port, endpoint.serviceName)
+                    }
+                }
             }
         }, "wipad-connection-manager").apply {
             isDaemon = true
