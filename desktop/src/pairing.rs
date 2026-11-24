@@ -176,7 +176,8 @@ mod tests {
     use uuid::Uuid;
 
     fn temp_trust_store(label: &str) -> (PathBuf, TrustStore) {
-        let directory = std::env::temp_dir().join(format!("wipad-pairing-{label}-{}", Uuid::new_v4()));
+        let directory =
+            std::env::temp_dir().join(format!("wipad-pairing-{label}-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&directory).unwrap();
         let store = TrustStore::new(directory.join("trusted-peer.sha256"));
         (directory, store)
@@ -185,8 +186,12 @@ mod tests {
     fn socket_pair() -> (UnixStream, UnixStream) {
         let (first, second) = UnixStream::pair().unwrap();
         for stream in [&first, &second] {
-            stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
-            stream.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
         }
         (first, second)
     }
@@ -238,7 +243,10 @@ mod tests {
         .unwrap();
         let phone_result = phone_thread.join().unwrap();
 
-        assert_eq!(desktop_result.comparison_string, phone_result.comparison_string);
+        assert_eq!(
+            desktop_result.comparison_string,
+            phone_result.comparison_string
+        );
         assert!(!desktop_result.reconnecting);
         assert!(!phone_result.reconnecting);
         assert_eq!(
