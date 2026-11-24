@@ -66,6 +66,10 @@ The Linux receiver maps the hat to \`ABS_HAT0X\` and \`ABS_HAT0Y\`, using -1, 0 
 - Unknown button bits, invalid hat values, zero sequence numbers, malformed lengths and unknown message types are rejected.
 - Sample time is diagnostic metadata only. The receiver uses its own monotonic clock for freshness and timeout enforcement.
 
+## Update cadence and receiver freshness
+
+The phone initially sends complete snapshots at 20 Hz (one frame every 50 ms), including unchanged states. This avoids a held button becoming stale simply because the player is not moving. The desktop uses its own monotonic clock and releases all controls after 750 ms without a valid, strictly newer snapshot. Session start and session teardown both begin/end in a neutral state.
+
 ## Shared conformance vector
 
 Both implementations encode and decode the following payload byte-for-byte:
