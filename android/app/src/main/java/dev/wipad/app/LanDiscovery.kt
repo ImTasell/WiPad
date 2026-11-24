@@ -19,6 +19,7 @@ class LanDiscovery(
     context: Context,
     private val onStatus: (String) -> Unit,
     private val onDesktopResolved: (InetAddress, Int, String) -> Unit = { _, _, _ -> },
+    private val onDesktopLost: (String) -> Unit = {},
 ) : Closeable {
     companion object {
         private const val PHONE_SERVICE = "_wipad-phone._tcp."
@@ -155,7 +156,10 @@ class LanDiscovery(
                             resolvingServices.remove(service.serviceName)
                             resolvedServices.remove(service.serviceName)
                         }
-                        if (!closed) onStatus("Desktop disappeared · scanning")
+                        if (!closed) {
+                            onStatus("Desktop disappeared · scanning")
+                            onDesktopLost(service.serviceName)
+                        }
                     }
                 }
                 override fun onDiscoveryStopped(serviceType: String) {
