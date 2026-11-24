@@ -94,36 +94,36 @@ internal class AndroidControllerInput {
         val device = InputDevice.getDevice(selected) ?: return false
         val source = event.source
 
-        leftX = signedAxis(event, device, InputDevice.AXIS_X, source)
-        leftY = signedAxis(event, device, InputDevice.AXIS_Y, source)
-        val rightXAxis = if (device.hasMotionRange(InputDevice.AXIS_Z, source)) {
-            InputDevice.AXIS_Z
+        leftX = signedAxis(event, device, MotionEvent.AXIS_X, source)
+        leftY = signedAxis(event, device, MotionEvent.AXIS_Y, source)
+        val rightXAxis = if (device.getMotionRange(MotionEvent.AXIS_Z, source) != null) {
+            MotionEvent.AXIS_Z
         } else {
-            InputDevice.AXIS_RX
+            MotionEvent.AXIS_RX
         }
-        val rightYAxis = if (device.hasMotionRange(InputDevice.AXIS_RZ, source)) {
-            InputDevice.AXIS_RZ
+        val rightYAxis = if (device.getMotionRange(MotionEvent.AXIS_RZ, source) != null) {
+            MotionEvent.AXIS_RZ
         } else {
-            InputDevice.AXIS_RY
+            MotionEvent.AXIS_RY
         }
         rightX = signedAxis(event, device, rightXAxis, source)
         rightY = signedAxis(event, device, rightYAxis, source)
 
         val leftTriggerAxis = when {
-            device.hasMotionRange(InputDevice.AXIS_LTRIGGER, source) -> InputDevice.AXIS_LTRIGGER
-            device.hasMotionRange(InputDevice.AXIS_BRAKE, source) -> InputDevice.AXIS_BRAKE
+            device.getMotionRange(MotionEvent.AXIS_LTRIGGER, source) != null -> MotionEvent.AXIS_LTRIGGER
+            device.getMotionRange(MotionEvent.AXIS_BRAKE, source) != null -> MotionEvent.AXIS_BRAKE
             else -> null
         }
         val rightTriggerAxis = when {
-            device.hasMotionRange(InputDevice.AXIS_RTRIGGER, source) -> InputDevice.AXIS_RTRIGGER
-            device.hasMotionRange(InputDevice.AXIS_GAS, source) -> InputDevice.AXIS_GAS
+            device.getMotionRange(MotionEvent.AXIS_RTRIGGER, source) != null -> MotionEvent.AXIS_RTRIGGER
+            device.getMotionRange(MotionEvent.AXIS_GAS, source) != null -> MotionEvent.AXIS_GAS
             else -> null
         }
         leftTrigger = leftTriggerAxis?.let { triggerAxis(event, device, it, source) } ?: 0
         rightTrigger = rightTriggerAxis?.let { triggerAxis(event, device, it, source) } ?: 0
 
-        motionHatX = event.getAxisValue(InputDevice.AXIS_HAT_X).roundToInt().coerceIn(-1, 1)
-        motionHatY = event.getAxisValue(InputDevice.AXIS_HAT_Y).roundToInt().coerceIn(-1, 1)
+        motionHatX = event.getAxisValue(MotionEvent.AXIS_HAT_X).roundToInt().coerceIn(-1, 1)
+        motionHatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y).roundToInt().coerceIn(-1, 1)
         return true
     }
 
