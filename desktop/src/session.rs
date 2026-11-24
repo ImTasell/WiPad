@@ -221,10 +221,7 @@ mod tests {
             session.poll(start + INPUT_RELEASE_AFTER).unwrap(),
             Some(SessionAction::Release)
         );
-        assert_eq!(
-            session.poll(start + Duration::from_secs(3)).unwrap(),
-            None
-        );
+        assert_eq!(session.poll(start + Duration::from_secs(3)).unwrap(), None);
         assert_eq!(
             session
                 .poll(start + SESSION_IDLE_TIMEOUT)
