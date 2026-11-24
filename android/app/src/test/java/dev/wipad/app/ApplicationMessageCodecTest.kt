@@ -8,7 +8,7 @@ import org.junit.Test
 
 class ApplicationMessageCodecTest {
     private val helloVector = byteArrayOf(
-        0x01, 0x01, 0x01, 0x01, 0x05,
+        0x01, 0x01, 0x02, 0x01, 0x05,
         'P'.code.toByte(), 'h'.code.toByte(), 'o'.code.toByte(),
         'n'.code.toByte(), 'e'.code.toByte(),
     )
@@ -17,7 +17,7 @@ class ApplicationMessageCodecTest {
     fun encodesTheSharedPhonePairingHelloVector() {
         val message = ApplicationMessage.PairingHello(
             major = 1,
-            minor = 1,
+            minor = 2,
             role = PeerRole.PHONE,
             displayName = "Phone",
         )
@@ -28,7 +28,7 @@ class ApplicationMessageCodecTest {
     @Test
     fun decodesTheSharedPhonePairingHelloVector() {
         assertEquals(
-            ApplicationMessage.PairingHello(1, 1, PeerRole.PHONE, "Phone"),
+            ApplicationMessage.PairingHello(1, 2, PeerRole.PHONE, "Phone"),
             ApplicationMessageCodec.decode(helloVector),
         )
     }
@@ -72,6 +72,27 @@ class ApplicationMessageCodecTest {
             byteArrayOf(0x11, 2),
             byteArrayOf(0x11, 1, 0),
         ).forEach(::assertDecodeRejected)
+    }
+
+    @Test
+    fun encodesAndDecodesHeartbeatNonces() {
+        val nonce = 0x0102030405060708L
+        val ping = ApplicationMessage.Ping(nonce)
+        val pong = ApplicationMessage.Pong(nonce)
+        val vector = byteArrayOf(
+            0x12, 1, 2, 3, 4, 5, 6, 7, 8,
+        )
+        assertArrayEquals(vector, ApplicationMessageCodec.encode(ping))
+        assertEquals(ping, ApplicationMessageCodec.decode(vector))
+        assertArrayEquals(vector.copyOf().also { it[0] = 0x13 }, ApplicationMessageCodec.encode(pong))
+        assertEquals(pong, ApplicationMessageCodec.decode(vector.copyOf().also { it[0] = 0x13 }))
+    }
+
+    @Test
+    fun rejectsMalformedHeartbeatMessages() {
+        assertDecodeRejected(byteArrayOf(0x12))
+        assertDecodeRejected(byteArrayOf(0x13, 0, 0, 0, 0, 0, 0, 0))
+        assertDecodeRejected(byteArrayOf(0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0))
     }
 
     @Test
