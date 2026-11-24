@@ -33,6 +33,17 @@ internal class PhoneSession(
     }
 
     @Synchronized
+    fun sendControllerStatus(connected: Boolean) {
+        if (socket.isClosed || socket.isOutputShutdown) {
+            throw IOException("WiPad session is closed")
+        }
+        FrameCodec.writeFrame(
+            socket.outputStream,
+            ApplicationMessageCodec.encode(ApplicationMessage.ControllerStatus(connected)),
+        )
+    }
+
+    @Synchronized
     override fun close() = socket.close()
 }
 
