@@ -1,3 +1,5 @@
+pub mod protocol;
+
 mod discovery;
 
 slint::include_modules!();
