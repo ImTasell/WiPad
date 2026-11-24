@@ -44,6 +44,9 @@ internal class AndroidControllerInput {
     }
 
     @Synchronized
+    fun isConnected(): Boolean = refreshDevices() != null
+
+    @Synchronized
     fun onDeviceRemoved(deviceId: Int) {
         if (selectedDeviceId == deviceId) {
             selectedDeviceId = null
