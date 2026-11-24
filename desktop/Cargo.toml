@@ -8,6 +8,7 @@ build = "build.rs"
 
 [dependencies]
 mdns-sd = "0.22.0"
+snow = "0.10.0"
 slint = "1.19.0"
 uuid = { version = "1.18.1", features = ["v4"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
