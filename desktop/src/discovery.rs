@@ -84,23 +84,23 @@ impl Discovery {
                     if let Ok(ServiceEvent::ServiceResolved(service)) =
                         receiver.recv_timeout(Duration::from_millis(500))
                     {
-                            let compatible =
-                                service.get_property_val_str("pv").is_some_and(|version| {
-                                    version.split(',').any(|v| v == PROTOCOL_MAJOR)
-                                });
-                            let is_phone = service.get_property_val_str("role") == Some("phone");
-                            if compatible && is_phone {
-                                let name = service
-                                    .get_property_val_str("name")
-                                    .unwrap_or("WiPad Phone");
-                                let address = service
-                                    .get_addresses_v4()
-                                    .iter()
-                                    .next()
-                                    .map(ToString::to_string)
-                                    .unwrap_or_else(|| "address unavailable".to_owned());
-                                callback(format!("Phone found · {name} · {address}"));
-                            }
+                        let compatible =
+                            service.get_property_val_str("pv").is_some_and(|version| {
+                                version.split(',').any(|v| v == PROTOCOL_MAJOR)
+                            });
+                        let is_phone = service.get_property_val_str("role") == Some("phone");
+                        if compatible && is_phone {
+                            let name = service
+                                .get_property_val_str("name")
+                                .unwrap_or("WiPad Phone");
+                            let address = service
+                                .get_addresses_v4()
+                                .iter()
+                                .next()
+                                .map(ToString::to_string)
+                                .unwrap_or_else(|| "address unavailable".to_owned());
+                            callback(format!("Phone found · {name} · {address}"));
+                        }
                     }
                 }
             })
