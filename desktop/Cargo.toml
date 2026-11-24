@@ -10,7 +10,11 @@ build = "build.rs"
 mdns-sd = "0.22.0"
 slint = "1.19.0"
 uuid = { version = "1.18.1", features = ["v4"] }
-snow = "0.10.0"
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
+rcgen = { version = "0.14.10", default-features = false, features = ["ring"] }
+x509-parser = "0.18.1"
+sha2 = "0.10.9"
+time = { version = "0.3.44", features = ["std"] }
 zeroize = "1.8.2"
 
 [build-dependencies]
