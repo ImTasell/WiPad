@@ -184,7 +184,7 @@ where
     FApprove: Fn(&PairingRequest) -> bool,
 {
     socket.set_nodelay(true)?;
-    socket.set_read_timeout(Some(Duration::from_secs(30)))?;
+    socket.set_read_timeout(Some(Duration::from_secs(120)))?;
     socket.set_write_timeout(Some(Duration::from_secs(10)))?;
 
     // Reload the pin for every connection. A first pairing writes the pin only
