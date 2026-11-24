@@ -190,5 +190,6 @@ internal class TlsPairingClient(
 
     companion object {
         private const val PAIRING_READ_TIMEOUT_MILLIS = 120_000
+        private const val HEARTBEAT_TIMEOUT_MILLIS = 7_000
     }
 }
