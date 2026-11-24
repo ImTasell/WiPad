@@ -207,10 +207,12 @@ mod tests {
 
         let mut reconnected = SessionInputTracker::new(start + Duration::from_secs(1));
         assert_eq!(
-            reconnected.handle(
-                ApplicationMessage::InputState(pressed(1)),
-                start + Duration::from_secs(1),
-            ).unwrap(),
+            reconnected
+                .handle(
+                    ApplicationMessage::InputState(pressed(1)),
+                    start + Duration::from_secs(1),
+                )
+                .unwrap(),
             Some(SessionAction::Apply(pressed(1)))
         );
         assert_eq!(reconnected.last_sequence(), Some(1));
