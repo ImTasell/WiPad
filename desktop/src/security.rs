@@ -288,7 +288,6 @@ pub fn evaluate_trust(trusted: Option<&[u8]>, observed: &[u8]) -> TrustDecision 
     }
 }
 
-
 const TRUST_MAGIC: &[u8; 5] = b"WIPT\x01";
 
 /// Persistent trust record for the single paired peer.
@@ -641,10 +640,7 @@ mod tests {
 
         store.store(&peer_key).unwrap();
         assert_eq!(store.load().unwrap().unwrap(), peer_key.to_vec());
-        assert_eq!(
-            store.decision(&peer_key).unwrap(),
-            TrustDecision::Trusted
-        );
+        assert_eq!(store.decision(&peer_key).unwrap(), TrustDecision::Trusted);
 
         let changed_key = [0x5A_u8; 32];
         assert_eq!(
@@ -694,5 +690,4 @@ mod tests {
             io::ErrorKind::InvalidInput
         );
     }
-
 }
