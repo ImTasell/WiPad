@@ -296,9 +296,20 @@ fn receive_controller_stream<S: Read>(stream: &mut S, stop: &AtomicBool) -> io::
                 ) =>
             {
                 // A silent or stalled phone must never leave a button held forever.
-                if !controls_released && last_input.elapsed() >= Duration::from_secs(2) {
+                let input_idle = last_input.elapsed();
+                if !controls_released && input_idle >= Duration::from_secs(2) {
                     gamepad.release_all()?;
                     controls_released = true;
+                }
+
+                // A trusted peer that stops sending snapshots is no longer a
+                // usable session. Close it so the phone's reconnect loop can
+                // establish a fresh authenticated connection.
+                if input_idle >= Duration::from_secs(15) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "controller stream was idle for 15 seconds",
+                    ));
                 }
             }
             Err(error) => return Err(error),
