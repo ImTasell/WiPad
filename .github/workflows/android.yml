@@ -26,11 +26,11 @@ jobs:
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
-      - name: Install Android SDK components
+      - name: Install Android 17 preview SDK
         shell: bash
         run: |
           set -euo pipefail
@@ -39,8 +39,9 @@ jobs:
             echo "Android SDK command-line tools were not found in $ANDROID_HOME" >&2
             exit 1
           fi
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" --install \
+          "$SDKMANAGER" --channel=3 --list | grep -E 'platforms;android-37|build-tools;37\.' || true
+          yes | "$SDKMANAGER" --channel=3 --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --channel=3 --install \
             "platforms;android-37" \
             "build-tools;37.0.0" \
             "platform-tools"
