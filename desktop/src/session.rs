@@ -61,7 +61,7 @@ impl SessionInputTracker {
                     Ok(Some(SessionAction::ControllerConnected))
                 } else {
                     self.controls_released = true;
-                    Ok(Some(SessionAction::Release))
+                    Ok(Some(SessionAction::ControllerDisconnected))
                 }
             }
             _ => Err(io::Error::new(
@@ -130,7 +130,7 @@ mod tests {
         );
         assert_eq!(
             session.handle(ApplicationMessage::ControllerStatus { connected: false }, start).unwrap(),
-            Some(SessionAction::Release)
+            Some(SessionAction::ControllerDisconnected)
         );
         assert_eq!(
             session.handle(ApplicationMessage::InputState(pressed(2)), start).unwrap(),
