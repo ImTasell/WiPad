@@ -922,5 +922,4 @@ mod tests {
         gate.approve_local();
         assert_eq!(gate.state(), PairingState::Ready);
     }
-
 }
