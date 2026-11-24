@@ -3,7 +3,7 @@ use rustls::{ServerConnection, StreamOwned};
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{TcpListener, TcpStream};
 
 use crate::controller::InputSequenceTracker;
 use crate::pairing::{PairingRequest, perform_pairing};
@@ -41,7 +41,6 @@ impl Discovery {
     ) -> Result<Self, String> {
         let stop = Arc::new(AtomicBool::new(false));
         let daemon = ServiceDaemon::new().map_err(|error| error.to_string())?;
-        let local_ip = select_local_ipv4().map_err(|error| error.to_string())?;
         let installation_id =
             load_or_create_installation_id().map_err(|error| error.to_string())?;
         let identity_path = TlsIdentity::default_path().map_err(|error| error.to_string())?;
@@ -62,13 +61,17 @@ impl Discovery {
             DESKTOP_SERVICE,
             instance_name.as_str(),
             "wipad-desktop.local.",
-            local_ip.to_string(),
+            "",
             SESSION_PORT,
             &properties[..],
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?
+        .enable_addr_auto();
         daemon
             .register(service)
+            .map_err(|error| error.to_string())?;
+        daemon
+            .set_ip_check_interval(5)
             .map_err(|error| error.to_string())?;
 
         let listener = TcpListener::bind(("0.0.0.0", SESSION_PORT))
@@ -136,8 +139,7 @@ impl Discovery {
                             if !discovered_phones.insert(service.get_fullname().to_owned()) {
                                 continue;
                             }
-                            {
-                                let name = service
+                            let name = service
                                     .get_property_val_str("name")
                                     .unwrap_or("WiPad Phone");
                                 let address = service
@@ -146,8 +148,7 @@ impl Discovery {
                                     .next()
                                     .map(ToString::to_string)
                                     .unwrap_or_else(|| "address unavailable".to_owned());
-                                callback(format!("Phone found · {name} · {address}"));
-                            }
+                            callback(format!("Phone found · {name} · {address}"));
                         }
                         Ok(ServiceEvent::ServiceRemoved(service_type, full_name))
                             if service_type == PHONE_SERVICE =>
@@ -367,18 +368,6 @@ fn is_compatible_phone(protocol_versions: Option<&str>, role: Option<&str>) -> b
                 .split(',')
                 .any(|version| version.trim() == PROTOCOL_MAJOR)
         })
-}
-
-fn select_local_ipv4() -> io::Result<std::net::Ipv4Addr> {
-    let socket = UdpSocket::bind(("0.0.0.0", 0))?;
-    socket.connect(("224.0.0.251", 5353))?;
-    match socket.local_addr()?.ip() {
-        IpAddr::V4(address) if !address.is_unspecified() => Ok(address),
-        _ => Err(io::Error::new(
-            io::ErrorKind::AddrNotAvailable,
-            "no active IPv4 network interface",
-        )),
-    }
 }
 
 fn load_or_create_installation_id() -> io::Result<String> {
