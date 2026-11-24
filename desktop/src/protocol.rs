@@ -49,7 +49,10 @@ impl FrameReader {
                 }
             } else if self.buffer.len() == 4 {
                 let length = u32::from_be_bytes(
-                    self.buffer.as_slice().try_into().expect("four-byte frame header"),
+                    self.buffer
+                        .as_slice()
+                        .try_into()
+                        .expect("four-byte frame header"),
                 ) as usize;
                 self.buffer.clear();
                 validate_length(length, io::ErrorKind::InvalidData)?;
@@ -192,8 +195,7 @@ mod tests {
                     .len()
                     .min(self.max_chunk)
                     .min(self.bytes.len() - self.offset);
-                output[..count]
-                    .copy_from_slice(&self.bytes[self.offset..self.offset + count]);
+                output[..count].copy_from_slice(&self.bytes[self.offset..self.offset + count]);
                 self.offset += count;
                 Ok(count)
             }
