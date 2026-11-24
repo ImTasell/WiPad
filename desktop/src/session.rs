@@ -96,7 +96,7 @@ impl SessionInputTracker {
 mod tests {
     use super::*;
     use crate::controller::{BUTTON_SOUTH, ControllerState};
-    use crate::protocol::{decode_application_message, encode_application_message};
+    use crate::protocol::{decode_application_message, encode_application_message, write_frame, FrameReader};
 
     fn pressed(sequence: u64) -> ControllerState {
         ControllerState {
@@ -110,13 +110,20 @@ mod tests {
     fn accepts_a_wire_encoded_snapshot_and_applies_it() {
         let start = Instant::now();
         let mut session = SessionInputTracker::new(start);
-        let bytes = encode_application_message(&ApplicationMessage::InputState(pressed(1))).unwrap();
-        let message = decode_application_message(&bytes).unwrap();
+        let payload =
+            encode_application_message(&ApplicationMessage::InputState(pressed(1))).unwrap();
+        let mut framed = Vec::new();
+        write_frame(&mut framed, &payload).unwrap();
+        let mut transport = std::io::Cursor::new(framed);
+        let mut decoder = FrameReader::new();
+        let received = decoder.read_next(&mut transport).unwrap().unwrap();
+        let message = decode_application_message(&received).unwrap();
 
         assert_eq!(
             session.handle(message, start).unwrap(),
             Some(SessionAction::Apply(pressed(1)))
         );
+        assert_eq!(decoder.read_next(&mut transport).unwrap(), None);
         assert_eq!(session.last_sequence(), Some(1));
     }
 
