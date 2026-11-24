@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     if let Err(error) = &_discovery {
-        app.set_phone_status(format!("Discovery unavailable · {error}").into());
+        app.set_discovery_status(format!("Discovery unavailable · {error}").into());
     }
 
     app.run()?;
