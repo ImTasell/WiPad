@@ -96,7 +96,7 @@ impl TlsIdentity {
                     })?;
                 let key_length = u32::try_from(identity.private_key_pkcs8.len()).map_err(|_| {
                     io::Error::new(io::ErrorKind::InvalidData, "private key too large")
-                })?
+                })?;
 
                 let result = file
                     .write_all(IDENTITY_MAGIC)
