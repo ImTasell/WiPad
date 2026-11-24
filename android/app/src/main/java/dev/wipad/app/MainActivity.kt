@@ -6,6 +6,7 @@ import android.view.MotionEvent
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.ThreadLocalRandom
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +43,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var activityStarted = false
     @Volatile private var phoneSession: PhoneSession? = null
     @Volatile private var inputThread: Thread? = null
+    @Volatile private var connectionThread: Thread? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,6 +72,8 @@ class MainActivity : ComponentActivity() {
         activityStarted = false
         discovery?.close()
         discovery = null
+        connectionThread?.interrupt()
+        connectionThread = null
         inputThread?.interrupt()
         inputThread = null
         phoneSession?.close()
@@ -81,45 +85,78 @@ class MainActivity : ComponentActivity() {
         if (phoneSession != null || !sessionConnecting.compareAndSet(false, true)) return
         runOnUiThread { desktopStatus = "Securing connection to $serviceName" }
 
-        Thread({
+        val worker = Thread({
+            var attempt = 0
             try {
-                val identity = TlsIdentity.loadOrCreate()
-                val pinStore = TlsPeerPinStore(this)
-                val session = TlsPairingClient(identity, pinStore).connect(
-                    address = address,
-                    port = port,
-                    displayName = "WiPad Phone",
-                ) { request ->
-                    runOnUiThread {
-                        desktopStatus = "Pairing needs approval · ${request.peerDisplayName} · ${request.comparisonString}"
-                    }
-                    // The approval surface is not implemented yet. Never auto-approve first contact.
-                    false
-                }
+                while (activityStarted && !Thread.currentThread().isInterrupted) {
+                    try {
+                        val identity = TlsIdentity.loadOrCreate()
+                        val pinStore = TlsPeerPinStore(this)
+                        val session = TlsPairingClient(identity, pinStore).connect(
+                            address = address,
+                            port = port,
+                            displayName = "WiPad Phone",
+                        ) { request ->
+                            runOnUiThread {
+                                desktopStatus = "Pairing needs approval · ${request.peerDisplayName} · ${request.comparisonString}"
+                            }
+                            // First contact remains denied until the approval surface exists.
+                            false
+                        }
 
-                if (activityStarted) {
-                    phoneSession = session
-                    runOnUiThread {
-                        desktopStatus = "Secure session ready · ${session.peerDisplayName}"
+                        if (!activityStarted || Thread.currentThread().isInterrupted) {
+                            session.close()
+                            break
+                        }
+
+                        phoneSession = session
+                        attempt = 0
+                        runOnUiThread {
+                            desktopStatus = "Secure session ready · ${session.peerDisplayName}"
+                        }
+                        startControllerStream(session)
+
+                        while (
+                            activityStarted
+                            && phoneSession === session
+                            && !Thread.currentThread().isInterrupted
+                        ) {
+                            Thread.sleep(100)
+                        }
+                        if (activityStarted && !Thread.currentThread().isInterrupted) {
+                            runOnUiThread { desktopStatus = "Connection lost · reconnecting" }
+                        }
+                    } catch (error: Exception) {
+                        if (!activityStarted || Thread.currentThread().isInterrupted) break
+                        val message = error.message ?: error.javaClass.simpleName
+                        runOnUiThread { desktopStatus = "Secure session unavailable · $message" }
+
+                        val terminalFailure = message.contains("rejected", ignoreCase = true)
+                            || message.contains("identity changed", ignoreCase = true)
+                            || message.contains("incompatible", ignoreCase = true)
+                            || message.contains("unsupported", ignoreCase = true)
+                        if (terminalFailure) break
                     }
-                    startControllerStream(session)
-                } else {
-                    session.close()
-                }
-            } catch (error: Exception) {
-                if (activityStarted) {
-                    runOnUiThread {
-                        desktopStatus = "Secure session unavailable · ${error.message ?: error.javaClass.simpleName}"
+
+                    if (activityStarted && !Thread.currentThread().isInterrupted) {
+                        val jitter = ThreadLocalRandom.current().nextLong(0L, 501L)
+                        val delay = ReconnectBackoff.delayMillis(attempt, jitter)
+                        attempt = (attempt + 1).coerceAtMost(5)
+                        Thread.sleep(delay)
                     }
                 }
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
             } finally {
                 sessionConnecting.set(false)
             }
-        }, "wipad-tls-session").apply {
+        }, "wipad-connection-manager").apply {
             isDaemon = true
             start()
         }
+        connectionThread = worker
     }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         controllerInput.refreshDevices()
         return if (controllerInput.handleKeyEvent(event)) true else super.dispatchKeyEvent(event)
