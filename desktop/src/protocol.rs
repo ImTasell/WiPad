@@ -298,7 +298,7 @@ mod tests {
     fn encodes_the_shared_phone_pairing_hello_vector() {
         let message = ApplicationMessage::PairingHello {
             major: 1,
-            minor: 0,
+            minor: 1,
             role: PeerRole::Phone,
             display_name: "Phone".to_owned(),
         };
@@ -426,7 +426,7 @@ mod tests {
 }
 
 pub const PROTOCOL_MAJOR: u8 = 1;
-pub const PROTOCOL_MINOR: u8 = 0;
+pub const PROTOCOL_MINOR: u8 = 1;
 pub const MAX_DISPLAY_NAME_LENGTH: usize = 64;
 
 const MESSAGE_PAIRING_HELLO: u8 = 0x01;
