@@ -246,7 +246,7 @@ private class PinnedDesktopTrustManager(
         if (expectedFingerprint != null
             && !TlsFingerprint.matchesFingerprint(expectedFingerprint, observed)
         ) {
-            throw CertificateException("Desktop certificate changed; pairing approval is required")
+            throw CertificateException("Desktop identity changed; pairing approval is required")
         }
         // JSSE performs TLS 1.3 CertificateVerify signature verification after this
         // trust-manager decision. A null pin is therefore TOFU pairing, not
