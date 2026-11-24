@@ -1,6 +1,6 @@
 # WiPad Architecture
 
-Status: Initial architecture proposal  
+Status: Backend implementation baseline (hardware verification and UI work remain)  
 Repository: `ImTasell/WiPad`  
 Platforms: Android 11+ (Kotlin + Jetpack Compose) and Linux desktop (Rust + Slint)
 
@@ -97,7 +97,9 @@ mDNS uses local-link multicast. It is not a way to discover devices across the p
 
 Implementation direction:
 - Android: evaluate Android's `NsdManager` APIs for service registration and discovery.
-- Linux: use a maintained Rust DNS-SD/mDNS implementation.
+- Linux: use `mdns-sd` with automatically refreshed IPv4 addresses across active interfaces.
+- Android: use `NsdManager`, refresh browsing when the default network changes, and discard duplicate or stale resolutions.
+- The Android connection manager follows the latest resolved desktop endpoint instead of retrying a stale IP address.
 - Keep discovery behind a small platform-specific interface so the protocol and UI do not depend on a particular mDNS library.
 
 If real-device testing shows mDNS is unreliable on target networks, evaluate a bounded UDP multicast/broadcast fallback. Do not implement multiple discovery transports before the basic mDNS path has been tested.
@@ -132,18 +134,20 @@ The first-contact approval is an intentional security boundary. A future fully u
 
 ### Identity and session security
 
-The implementation must select a reviewed, interoperable authenticated-encryption and key-establishment design before protocol freeze. Prefer well-maintained platform libraries and avoid inventing cryptography.
+**Implemented security baseline:** mutual TLS 1.3 over the local TCP session, with a persistent per-installation ECDSA P-256 identity on each platform. TLS and certificate validation are provided by the platform libraries; WiPad does not implement cryptographic primitives itself.
 
 Requirements:
 - Each installation has a persistent cryptographic identity.
-- The first approved identity is stored as the trusted peer.
-- Reconnection verifies the same peer identity; a changed identity requires explicit re-approval.
+- First contact requires an explicit approval on both devices; each side displays the same short comparison string.
+- Approval requests are bounded to 120 seconds and fail closed on timeout, cancellation, or a second concurrent request.
+- The first approved identity is stored as the trusted peer only after both approvals and both `SESSION_READY` messages.
+- Reconnection verifies the same peer identity; a changed identity is rejected until the user explicitly revokes the stored trust.
 - Session keys are fresh and are not sent in discovery records.
 - Controller packets are encrypted and integrity-protected.
 - Untrusted peers cannot create a virtual controller session merely by discovering the desktop.
-- Provide a way to revoke the trusted peer from settings.
+- Provide a way to revoke the trusted peer from settings. Backend revocation hooks exist on both platforms; the settings UI is still pending.
 
-The exact handshake, key storage APIs, cipher suite, and threat model remain to be specified in `PROTOCOL.md` before implementation.
+The wire-level pairing and session messages are documented in `PROTOCOL.md`. The platform TLS stacks select the negotiated TLS 1.3 cipher suite. The remaining security work is UI integration and real-device validation of trust, revocation, and identity-change behavior.
 
 ## 6. Automatic reconnection
 
@@ -152,9 +156,9 @@ Auto-reconnect is a core behavior, not an optional convenience.
 Expected behavior:
 - While the app is active, continue discovery when no session is connected.
 - When a previously trusted peer reappears, attempt authentication automatically.
-- Use bounded exponential backoff with jitter after failed connection attempts.
-- Reset the retry delay after a stable session has been established.
-- Detect network changes and restart discovery on the new active network.
+- Use bounded exponential backoff (1–30 seconds) with up to 500 ms jitter after failed connection attempts.
+- Reset the retry delay after a session has been established.
+- Detect network changes, refresh mDNS browsing/advertisements, and reconnect using the latest resolved endpoint.
 - Do not create multiple simultaneous sessions.
 - If the Bluetooth controller disconnects, keep the desktop session state distinct and report that controller input is unavailable.
 - If the Wi-Fi session drops, stop forwarding input and release all virtual-gamepad buttons/axes on the desktop.
@@ -172,17 +176,17 @@ Android background execution is constrained by the OS. The initial implementatio
 
 ## 7. Session transport
 
-The exact transport is not frozen by this document.
+**Implemented baseline:** a length-prefixed TCP stream protected by mutual TLS 1.3. The application protocol is versioned independently of TLS. Controller snapshots are sent at approximately 60 Hz.
 
 The transport must support:
 - Low-latency delivery of frequent controller-state updates.
 - Authentication and encryption.
-- Session liveness detection.
-- Version negotiation.
+- Session liveness detection (desktop PING every 2 seconds; missing PONG after 7 seconds closes the session).
+- Version negotiation (protocol major 1, minor 2).
 - Bounded packet sizes and strict validation.
 - Clean disconnect and reconnect behavior.
 
-Evaluate a reliable stream and a datagram-based input path against real controller workloads before choosing. Do not assume that discovery transport and controller-session transport must be the same.
+A datagram-based input path is not part of the current implementation. Reconsider it only if real-device latency measurements show the reliable stream is insufficient. Discovery remains mDNS and is separate from the authenticated session.
 
 For controller state, newer complete state snapshots are generally more useful than replaying a long backlog of stale input. The protocol should include sequence numbers and define how to handle reordering, duplication, loss, and stale packets.
 
@@ -213,7 +217,7 @@ Lifecycle:
 4. Apply validated controller-state updates.
 5. On disconnect, timeout, application shutdown, or fatal input error, release all controls and destroy the device cleanly.
 
-A lost session must never leave a button logically held down. The desktop should also enforce an input freshness timeout so a dead phone cannot leave stale state applied indefinitely.
+A lost session must never leave a button logically held down. The desktop releases controls after 2 seconds without a fresh input snapshot and closes an idle session after 15 seconds. A separate 7-second heartbeat timeout detects a dead peer even while controller snapshots are flowing.
 
 ## 10. Proposed repository structure
 
@@ -241,30 +245,30 @@ Do not share implementation code across Kotlin and Rust. Share the protocol spec
 
 ## 11. Implementation milestones
 
-### Milestone 1 — platform skeletons
+### Milestone 1 — platform skeletons <badge>Complete</badge>
 - Create the Android Compose app and Rust/Slint desktop app.
 - Establish build and test workflows.
 - Add platform capability checks and basic status screens.
 
-### Milestone 2 — discovery prototype
+### Milestone 2 — discovery prototype (implementation complete; hardware verification pending)
 - Implement mDNS registration and browsing on both platforms.
 - Display discovered peers without connecting.
 - Test on real Android 11 and Linux devices on the same Wi-Fi network.
 - Test network changes, app restarts, and multicast-blocked networks.
 
-### Milestone 3 — trust and authenticated session
+### Milestone 3 — trust and authenticated session (backend complete; approval UI pending)
 - Specify the threat model and select reviewed cryptographic libraries.
 - Implement first-time approval and persistent peer identity.
 - Verify that unknown peers cannot send controller input.
 - Test trusted reconnection and identity changes.
 
-### Milestone 4 — controller pipeline
+### Milestone 4 — controller pipeline (implementation complete; hardware verification pending)
 - Connect the Bluetooth controller on Android.
 - Normalize input into the protocol state model.
 - Send state updates to the desktop.
 - Validate updates and expose them through a Linux `uinput` device.
 
-### Milestone 5 — reliability and polish
+### Milestone 5 — reliability and polish (backend reliability implemented; end-to-end verification pending)
 - Add retry/backoff, liveness checks, stale-input release, and network-change recovery.
 - Test controller disconnects, Wi-Fi loss, app restarts, and desktop shutdown.
 - Finish accessible status UI and diagnostics.
@@ -272,10 +276,8 @@ Do not share implementation code across Kotlin and Rust. Share the protocol spec
 ## 12. Decisions still open
 
 These must be resolved before the wire protocol and implementation are frozen:
-- Exact authenticated handshake and cryptographic identity format.
-- Exact session transport and port allocation.
-- Controller-state packet format, capabilities, and update rate.
-- Whether one-time approval is required on the phone, desktop, or both.
+- Android foreground-service behavior and supported background scenarios.
+- Hardware compatibility and real-device timing across target Bluetooth controllers and Wi-Fi networks.
 - Android foreground-service behavior and supported background scenarios.
 - Whether a unicast fallback is needed on networks that block mDNS.
 
