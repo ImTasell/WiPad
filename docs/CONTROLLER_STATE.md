@@ -78,4 +78,4 @@ Both implementations encode and decode the following payload byte-for-byte:
 
 Decoded values: sequence 1, sample time 2 µs, south+north buttons, centered hat, left stick (4660, -2), right stick (0, -32768), left trigger 65535, right trigger 0.
 
-The Rust and Kotlin test suites assert this exact vector and malformed-input rejection.
+The Rust and Kotlin test suites load this vector and shared malformed-input fixtures from [protocol/golden-vectors.txt](../protocol/golden-vectors.txt). Keep the canonical bytes in that file rather than duplicating them in platform tests.
