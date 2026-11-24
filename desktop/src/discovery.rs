@@ -299,32 +299,37 @@ fn receive_controller_stream<S: Read + Write>(
         }
 
         match decoder.read_next(stream) {
-            Ok(Some(frame)) => match decode_application_message(&frame)? {
-                ApplicationMessage::InputState(_) | ApplicationMessage::ControllerStatus { .. } => {
-                    if let Some(action) = input_session.handle(
-                        decode_application_message(&frame)?,
-                        Instant::now(),
-                    )? {
-                        match action {
-                            SessionAction::Apply(state) => gamepad.apply_state(&state)?,
-                            SessionAction::Release => gamepad.release_all()?,
-                            SessionAction::ControllerConnected => on_status(
-                                "Bluetooth controller connected · receiving input".to_owned(),
-                            ),
-                            SessionAction::ControllerDisconnected => on_status(
-                                "Phone connected · waiting for Bluetooth controller".to_owned(),
-                            ),
+            Ok(Some(frame)) => {
+                let message = decode_application_message(&frame)?;
+                match message {
+                    message @ (ApplicationMessage::InputState(_)
+                    | ApplicationMessage::ControllerStatus { .. }) => {
+                        if let Some(action) = input_session.handle(message, Instant::now())? {
+                            match action {
+                                SessionAction::Apply(state) => gamepad.apply_state(&state)?,
+                                SessionAction::Release => gamepad.release_all()?,
+                                SessionAction::ControllerConnected => on_status(
+                                    "Bluetooth controller connected · receiving input".to_owned(),
+                                ),
+                                SessionAction::ControllerDisconnected => {
+                                    gamepad.release_all()?;
+                                    on_status(
+                                        "Phone connected · waiting for Bluetooth controller"
+                                            .to_owned(),
+                                    );
+                                }
+                            }
                         }
                     }
+                    ApplicationMessage::Pong { nonce } => heartbeat.receive_pong(nonce)?,
+                    _ => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "received a message that is invalid during controller streaming",
+                        ));
+                    }
                 }
-                ApplicationMessage::Pong { nonce } => heartbeat.receive_pong(nonce)?,
-                _ => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "received a message that is invalid during controller streaming",
-                    ));
-                }
-            },
+            }
             Ok(None) => {
                 gamepad.release_all()?;
                 return Ok(());
