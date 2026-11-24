@@ -177,7 +177,9 @@ mod tests {
             Some(SessionAction::ControllerConnected)
         );
         assert_eq!(
-            session.handle(ApplicationMessage::InputState(pressed(1)), start).unwrap(),
+            session
+                .handle(ApplicationMessage::InputState(pressed(1)), start)
+                .unwrap(),
             Some(SessionAction::Apply(pressed(1)))
         );
     }
