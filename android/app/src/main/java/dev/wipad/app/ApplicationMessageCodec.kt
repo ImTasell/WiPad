@@ -27,6 +27,8 @@ internal sealed class ApplicationMessage {
     data object SessionReady : ApplicationMessage()
 
     data class InputState(val state: ControllerState) : ApplicationMessage()
+
+    data class ControllerStatus(val connected: Boolean) : ApplicationMessage()
 }
 
 /**
@@ -43,6 +45,7 @@ internal object ApplicationMessageCodec {
     private const val MESSAGE_PAIRING_DECISION = 0x02
     private const val MESSAGE_SESSION_READY = 0x03
     private const val MESSAGE_INPUT_STATE = ControllerStateCodec.MESSAGE_TYPE
+    private const val MESSAGE_CONTROLLER_STATUS = 0x11
 
     fun encode(message: ApplicationMessage): ByteArray {
         val payload = when (message) {
@@ -69,6 +72,11 @@ internal object ApplicationMessageCodec {
             ApplicationMessage.SessionReady -> byteArrayOf(MESSAGE_SESSION_READY.toByte())
 
             is ApplicationMessage.InputState -> ControllerStateCodec.encode(message.state)
+
+            is ApplicationMessage.ControllerStatus -> byteArrayOf(
+                MESSAGE_CONTROLLER_STATUS.toByte(),
+                if (message.connected) 1 else 0,
+            )
         }
 
         if (payload.isEmpty() || payload.size > FrameCodec.MAX_FRAME_LENGTH) {
@@ -86,6 +94,12 @@ internal object ApplicationMessageCodec {
         return when (payload[0].toInt() and 0xFF) {
             MESSAGE_PAIRING_HELLO -> decodePairingHello(payload)
             MESSAGE_INPUT_STATE -> ApplicationMessage.InputState(ControllerStateCodec.decode(payload))
+            MESSAGE_CONTROLLER_STATUS -> {
+                if (payload.size != 2 || (payload[1].toInt() and 0xFF) !in 0..1) {
+                    throw IOException("WiPad controller status is malformed")
+                }
+                ApplicationMessage.ControllerStatus(payload[1].toInt() == 1)
+            }
             MESSAGE_PAIRING_DECISION -> {
                 if (payload.size != 2 || (payload[1].toInt() and 0xFF) !in 0..1) {
                     throw IOException("WiPad pairing decision is malformed")
