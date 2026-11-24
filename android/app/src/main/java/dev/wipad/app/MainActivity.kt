@@ -1,8 +1,11 @@
 package dev.wipad.app
 
 import android.os.Bundle
+import android.view.KeyEvent
+import android.view.MotionEvent
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -34,8 +37,11 @@ class MainActivity : ComponentActivity() {
     private var desktopStatus by mutableStateOf("Starting LAN discovery…")
     private var discovery: LanDiscovery? = null
     private val sessionConnecting = AtomicBoolean(false)
+    private val controllerInput = AndroidControllerInput()
+    private val inputSequence = AtomicLong(0)
     @Volatile private var activityStarted = false
     @Volatile private var phoneSession: PhoneSession? = null
+    @Volatile private var inputThread: Thread? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,6 +70,8 @@ class MainActivity : ComponentActivity() {
         activityStarted = false
         discovery?.close()
         discovery = null
+        inputThread?.interrupt()
+        inputThread = null
         phoneSession?.close()
         phoneSession = null
         super.onStop()
@@ -94,6 +102,7 @@ class MainActivity : ComponentActivity() {
                     runOnUiThread {
                         desktopStatus = "Secure session ready · ${session.peerDisplayName}"
                     }
+                    startControllerStream(session)
                 } else {
                     session.close()
                 }
@@ -111,6 +120,60 @@ class MainActivity : ComponentActivity() {
             start()
         }
     }
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        controllerInput.refreshDevices()
+        return if (controllerInput.handleKeyEvent(event)) true else super.dispatchKeyEvent(event)
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        controllerInput.refreshDevices()
+        return if (controllerInput.handleMotionEvent(event)) true else super.onGenericMotionEvent(event)
+    }
+
+    private fun startControllerStream(session: PhoneSession) {
+        inputThread?.interrupt()
+        val worker = Thread({
+            var sequence = inputSequence.get()
+            try {
+                while (
+                    activityStarted
+                    && phoneSession === session
+                    && !Thread.currentThread().isInterrupted
+                ) {
+                    controllerInput.refreshDevices()
+                    sequence += 1
+                    val snapshot = controllerInput.snapshot(
+                        sequence = sequence,
+                        sampleTimeMicros = System.nanoTime() / 1_000L,
+                    )
+                    session.sendControllerState(snapshot)
+                    inputSequence.set(sequence)
+                    Thread.sleep(INPUT_INTERVAL_MILLIS)
+                }
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            } catch (error: Exception) {
+                if (phoneSession === session) {
+                    phoneSession = null
+                    session.close()
+                    if (activityStarted) {
+                        runOnUiThread {
+                            desktopStatus = "Controller stream ended · ${error.message ?: error.javaClass.simpleName}"
+                        }
+                    }
+                }
+            }
+        }, "wipad-controller-stream").apply {
+            isDaemon = true
+            start()
+        }
+        inputThread = worker
+    }
+
+    companion object {
+        private const val INPUT_INTERVAL_MILLIS = 16L
+    }
+
 }
 
 @androidx.compose.runtime.Composable
