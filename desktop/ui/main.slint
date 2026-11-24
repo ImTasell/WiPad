@@ -1,0 +1,46 @@
+import { Button } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    title: "WiPad";
+    preferred-width: 560px;
+    preferred-height: 420px;
+    background: #0d1b2a;
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 16px;
+        padding: 32px;
+
+        Text {
+            text: "WiPad";
+            color: #eaf4ff;
+            font-size: 32px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: "Linux controller bridge";
+            color: #b8cde0;
+            font-size: 16px;
+        }
+
+        Rectangle {
+            background: #14283b;
+            border-radius: 12px;
+            padding: 20px;
+            min-width: 340px;
+
+            VerticalLayout {
+                spacing: 10px;
+                Text { text: "Phone: Waiting for discovery"; color: #80deea; }
+                Text { text: "Virtual gamepad: Not created"; color: #b8cde0; }
+            }
+        }
+
+        Text {
+            text: "Automatic discovery is coming next.";
+            color: #90a4b8;
+            font-size: 13px;
+        }
+    }
+}
