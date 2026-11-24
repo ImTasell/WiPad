@@ -122,6 +122,7 @@ class TlsIdentity private constructor(
         port: Int,
         expectedDesktopFingerprint: ByteArray?,
         connectTimeoutMillis: Int = 5000,
+        onSocketCreated: (SSLSocket) -> Unit = {},
     ): SSLSocket {
         val rawSocket = Socket()
         try {
@@ -130,7 +131,8 @@ class TlsIdentity private constructor(
                 .socketFactory
                 .createSocket(rawSocket, "wipad.local", port, true) as SSLSocket
             tlsSocket.enabledProtocols = arrayOf("TLSv1.3")
-            tlsSocket.soTimeout = 30_000
+            tlsSocket.soTimeout = 10_000
+            onSocketCreated(tlsSocket)
             tlsSocket.startHandshake()
             return tlsSocket
         } catch (error: Exception) {
