@@ -268,7 +268,6 @@ pub fn evaluate_trust(
     }
 }
 
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PairingState {
     AwaitingBothApprovals,
@@ -869,7 +868,6 @@ mod tests {
 
         assert!(verifier.validate(&certificate).is_err());
     }
-
 
     #[test]
     fn pairing_gate_requires_both_sides_to_approve() {
