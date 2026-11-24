@@ -139,19 +139,22 @@ impl InputSequenceTracker {
 mod tests {
     use super::*;
 
-    const SHARED_VECTOR: [u8; INPUT_STATE_PAYLOAD_LENGTH] = [
-        0x10, // INPUT_STATE
-        0, 0, 0, 0, 0, 0, 0, 1, // sequence = 1
-        0, 0, 0, 0, 0, 0, 0, 2, // sample_time_micros = 2
-        0, 0, 0, 9, // buttons = south + north
-        0, // hat = centered
-        0x12, 0x34, // left_x = 4660
-        0xff, 0xfe, // left_y = -2
-        0, 0, // right_x = 0
-        0x80, 0, // right_y = -32768
-        0xff, 0xff, // left_trigger = 65535
-        0, 0, // right_trigger = 0
-    ];
+    const GOLDEN_VECTORS: &str = include_str!("../../protocol/golden-vectors.txt");
+
+    fn golden_vector(name: &str) -> Vec<u8> {
+        let hex = GOLDEN_VECTORS
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .find_map(|(key, value)| (key == name).then_some(value.trim()))
+            .unwrap_or_else(|| panic!("missing golden vector: {name}"));
+        hex.as_bytes()
+            .chunks_exact(2)
+            .map(|pair| {
+                u8::from_str_radix(std::str::from_utf8(pair).expect("ASCII hex"), 16)
+                    .expect("valid golden-vector hex")
+            })
+            .collect()
+    }
 
     fn sample(sequence: u64) -> ControllerState {
         ControllerState {
@@ -169,16 +172,10 @@ mod tests {
     }
 
     #[test]
-    fn encodes_the_shared_controller_state_vector() {
-        assert_eq!(sample(1).encode_payload().unwrap(), SHARED_VECTOR);
-    }
-
-    #[test]
-    fn decodes_the_shared_controller_state_vector() {
-        assert_eq!(
-            ControllerState::decode_payload(&SHARED_VECTOR).unwrap(),
-            sample(1)
-        );
+    fn encodes_and_decodes_the_shared_controller_state_vector() {
+        let vector = golden_vector("input_state_sample");
+        assert_eq!(sample(1).encode_payload().unwrap(), vector);
+        assert_eq!(ControllerState::decode_payload(&vector).unwrap(), sample(1));
     }
 
     #[test]
@@ -195,16 +192,18 @@ mod tests {
         state.hat = 9;
         assert!(state.encode_payload().is_err());
 
-        let mut malformed = SHARED_VECTOR;
-        malformed[21] = 9;
-        assert!(ControllerState::decode_payload(&malformed).is_err());
+        assert!(ControllerState::decode_payload(
+            &golden_vector("invalid_input_state_hat")
+        )
+        .is_err());
     }
 
     #[test]
     fn rejects_wrong_lengths_and_message_types() {
-        assert!(ControllerState::decode_payload(&SHARED_VECTOR[..33]).is_err());
+        let vector = golden_vector("input_state_sample");
+        assert!(ControllerState::decode_payload(&vector[..33]).is_err());
 
-        let mut malformed = SHARED_VECTOR;
+        let mut malformed = vector;
         malformed[0] = 0x11;
         assert!(ControllerState::decode_payload(&malformed).is_err());
     }
