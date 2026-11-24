@@ -2,13 +2,13 @@ use std::io;
 
 use evdev::uinput::{VirtualDevice, VirtualDeviceBuilder};
 use evdev::{
-    AbsoluteAxisCode, AbsInfo, AttributeSet, EventType, InputEvent, KeyCode, UinputAbsSetup,
+    AbsInfo, AbsoluteAxisCode, AttributeSet, EventType, InputEvent, KeyCode, UinputAbsSetup,
 };
 
 use crate::controller::{
-    BUTTON_BACK, BUTTON_EAST, BUTTON_GUIDE, BUTTON_LEFT_BUMPER, BUTTON_LEFT_STICK,
-    BUTTON_NORTH, BUTTON_RIGHT_BUMPER, BUTTON_RIGHT_STICK, BUTTON_SOUTH, BUTTON_START,
-    BUTTON_WEST, ControllerState,
+    BUTTON_BACK, BUTTON_EAST, BUTTON_GUIDE, BUTTON_LEFT_BUMPER, BUTTON_LEFT_STICK, BUTTON_NORTH,
+    BUTTON_RIGHT_BUMPER, BUTTON_RIGHT_STICK, BUTTON_SOUTH, BUTTON_START, BUTTON_WEST,
+    ControllerState,
 };
 
 const BUTTON_MAPPING: [(u32, KeyCode); 11] = [
@@ -43,16 +43,34 @@ impl VirtualGamepad {
         let builder = VirtualDevice::builder().map_err(|error| {
             io::Error::new(
                 error.kind(),
-                format!("cannot open /dev/uinput; check kernel support and user permissions: {error}"),
+                format!(
+                    "cannot open /dev/uinput; check kernel support and user permissions: {error}"
+                ),
             )
         })?;
         let builder = builder.name(&"WiPad Virtual Gamepad").with_keys(&keys)?;
 
         let builder = builder
-            .with_absolute_axis(&axis(AbsoluteAxisCode::ABS_X, i16::MIN as i32, i16::MAX as i32))?
-            .with_absolute_axis(&axis(AbsoluteAxisCode::ABS_Y, i16::MIN as i32, i16::MAX as i32))?
-            .with_absolute_axis(&axis(AbsoluteAxisCode::ABS_RX, i16::MIN as i32, i16::MAX as i32))?
-            .with_absolute_axis(&axis(AbsoluteAxisCode::ABS_RY, i16::MIN as i32, i16::MAX as i32))?
+            .with_absolute_axis(&axis(
+                AbsoluteAxisCode::ABS_X,
+                i16::MIN as i32,
+                i16::MAX as i32,
+            ))?
+            .with_absolute_axis(&axis(
+                AbsoluteAxisCode::ABS_Y,
+                i16::MIN as i32,
+                i16::MAX as i32,
+            ))?
+            .with_absolute_axis(&axis(
+                AbsoluteAxisCode::ABS_RX,
+                i16::MIN as i32,
+                i16::MAX as i32,
+            ))?
+            .with_absolute_axis(&axis(
+                AbsoluteAxisCode::ABS_RY,
+                i16::MIN as i32,
+                i16::MAX as i32,
+            ))?
             .with_absolute_axis(&axis(AbsoluteAxisCode::ABS_Z, 0, u16::MAX as i32))?
             .with_absolute_axis(&axis(AbsoluteAxisCode::ABS_RZ, 0, u16::MAX as i32))?
             .with_absolute_axis(&axis(AbsoluteAxisCode::ABS_HAT0X, -1, 1))?
