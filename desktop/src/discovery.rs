@@ -81,8 +81,9 @@ impl Discovery {
             .spawn(move || {
                 callback("Broadcasting · scanning for phone".to_owned());
                 while !browse_stop.load(Ordering::Relaxed) {
-                    if let Ok(event) = receiver.recv_timeout(Duration::from_millis(500)) {
-                        if let ServiceEvent::ServiceResolved(service) = event {
+                    if let Ok(ServiceEvent::ServiceResolved(service)) =
+                        receiver.recv_timeout(Duration::from_millis(500))
+                    {
                             let compatible =
                                 service.get_property_val_str("pv").is_some_and(|version| {
                                     version.split(',').any(|v| v == PROTOCOL_MAJOR)
@@ -100,7 +101,6 @@ impl Discovery {
                                     .unwrap_or_else(|| "address unavailable".to_owned());
                                 callback(format!("Phone found · {name} · {address}"));
                             }
-                        }
                     }
                 }
             })
