@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
@@ -66,7 +68,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme(colorScheme = WiPadColors) {
-                WiPadHome(desktopStatus)
+                WiPadHome(desktopStatus, pendingPairing, { approvePendingPairing() }, { rejectPendingPairing() })
             }
         }
     }
@@ -387,7 +389,12 @@ class MainActivity : ComponentActivity() {
 }
 
 @androidx.compose.runtime.Composable
-private fun WiPadHome(desktopStatus: String) {
+private fun WiPadHome(
+    desktopStatus: String,
+    pendingPairing: PairingPrompt?,
+    onApprovePairing: () -> Unit,
+    onRejectPairing: () -> Unit,
+) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
@@ -416,5 +423,30 @@ private fun WiPadHome(desktopStatus: String) {
                 color = MaterialTheme.colorScheme.onBackground,
             )
         }
+    }
+
+    pendingPairing?.let { prompt ->
+        AlertDialog(
+            onDismissRequest = onRejectPairing,
+            title = { Text("Approve WiPad desktop?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${prompt.peerDisplayName} wants to pair with this phone.")
+                    Text("Compare this code on both devices:")
+                    Text(
+                        prompt.comparisonString,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                    Text("Only approve if the code matches the desktop.")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = onApprovePairing) { Text("Approve") }
+            },
+            dismissButton = {
+                TextButton(onClick = onRejectPairing) { Text("Reject") }
+            },
+        )
     }
 }
