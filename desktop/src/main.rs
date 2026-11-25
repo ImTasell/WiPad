@@ -48,7 +48,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     app.set_pairing_peer(peer_name.into());
                     app.set_pairing_code(comparison.into());
                     app.set_pairing_pending(true);
-                    app.set_discovery_status("First connection · compare the code and approve".into());
+                    app.set_discovery_status(
+                        "First connection · compare the code and approve".into(),
+                    );
                 }
             });
 
