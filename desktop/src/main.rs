@@ -54,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             });
 
-            let approved = worker_approval_broker.request(&request, Duration::from_secs(120));
+            let approved = worker_approval_broker.request(request, Duration::from_secs(120));
             let weak = approval_ui_weak.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(app) = weak.upgrade() {
