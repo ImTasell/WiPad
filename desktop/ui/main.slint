@@ -1,5 +1,10 @@
 export component MainWindow inherits Window {
     in-out property <string> discovery-status: "Starting LAN discovery…";
+    in-out property <bool> pairing-pending: false;
+    in-out property <string> pairing-peer: "";
+    in-out property <string> pairing-code: "";
+    callback approve-pairing();
+    callback reject-pairing();
 
     title: "WiPad";
     preferred-width: 560px;
@@ -40,6 +45,49 @@ export component MainWindow inherits Window {
                 Text {
                     text: "Virtual gamepad: Not created";
                     color: #b8cde0;
+                }
+            }
+        }
+
+        if root.pairing-pending: Rectangle {
+            background: #18384a;
+            border-radius: 12px;
+            min-width: 340px;
+
+            VerticalLayout {
+                padding: 18px;
+                spacing: 10px;
+                Text {
+                    text: "Approve first connection";
+                    color: #eaf4ff;
+                    font-size: 18px;
+                    font-weight: 700;
+                }
+                Text {
+                    text: root.pairing-peer + " wants to pair";
+                    color: #b8cde0;
+                }
+                Text {
+                    text: root.pairing-code;
+                    color: #4dd0e1;
+                    font-size: 24px;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Compare this code with the phone before approving.";
+                    color: #b8cde0;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Button {
+                        text: "Approve";
+                        clicked => { root.approve-pairing(); }
+                    }
+                    Button {
+                        text: "Reject";
+                        clicked => { root.reject-pairing(); }
+                    }
                 }
             }
         }
